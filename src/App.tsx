@@ -24,6 +24,7 @@ import {
   RefreshCw,
   X,
   Camera,
+  ScanLine,
   PenLine,
   Image as ImageIcon,
   Crosshair,
@@ -613,7 +614,7 @@ function LoginScreen({ onLogin }) {
       <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
         <div className="flex flex-col items-center">
           <img src={GREEN_LOGO_SRC} alt="그린산업 로고" className="h-14 w-14 object-contain" />
-          <h1 className="mt-3 text-lg font-bold text-slate-900">GreenSync 로그인</h1>
+          <h1 className="mt-3 text-lg font-bold text-slate-900">그린산업(주) 로그인</h1>
           <p className="mt-1 text-xs text-slate-400">그린산업(주) 통합 서비스 관리 시스템</p>
         </div>
 
@@ -624,7 +625,7 @@ function LoginScreen({ onLogin }) {
               <UserCircle2 className="h-4 w-4 text-slate-400" />
               <input
                 value={employeeId}
-                onChange={(e) => setEmployeeId(e.target.value)}
+                onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
                 placeholder="예: GI-230103"
                 disabled={status === "checking"}
                 className="w-full text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
@@ -783,50 +784,171 @@ function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout }) {
   const canSwitchSite = SITE_SWITCHABLE_ROLES.includes(employee.role);
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-100 bg-white px-6 py-3.5">
-      <div className="flex items-center gap-3">
-        <img src={GREEN_LOGO_SRC} alt="그린산업 로고" className="h-9 w-9 object-contain" />
-        <div>
-          <p className="text-[15px] font-bold text-slate-900">GreenSync</p>
-          <p className="text-[11px] text-slate-400">
-            {site ? site.label : "알 수 없는 근무지"} · {site ? site.role : ""}
-          </p>
+    <header className="sticky top-0 z-30 border-b border-slate-100 bg-white px-4 py-3 sm:px-6">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <img src={GREEN_LOGO_SRC} alt="그린산업 로고" className="h-9 w-9 flex-shrink-0 object-contain" />
+          <div className="min-w-0">
+            <p className="whitespace-nowrap text-[15px] font-bold text-slate-900">그린산업(주)</p>
+            <p className="truncate text-[11px] text-slate-400">
+              {site ? site.label : "알 수 없는 근무지"} · {site ? site.role : ""}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-shrink-0 items-center gap-2">
+          {canSwitchSite && (
+            <button
+              onClick={() => onSwitchSite(activeSite === "changwon" ? "gimhae" : "changwon")}
+              className="flex flex-shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 active:bg-slate-50"
+              title="지원/관리자 권한으로 근무지를 전환할 수 있습니다"
+            >
+              <ArrowLeftRight className="h-3 w-3 flex-shrink-0" />
+              {activeSite === "changwon" ? "김해 전환" : "창원 전환"}
+            </button>
+          )}
+          <button onClick={onLogout} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 active:bg-slate-50">
+            <LogOut className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
-        {canSwitchSite && (
-          <button
-            onClick={() => onSwitchSite(activeSite === "changwon" ? "gimhae" : "changwon")}
-            className="flex items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-bold text-slate-600 active:bg-slate-50"
-            title="지원/관리자 권한으로 근무지를 전환할 수 있습니다"
-          >
-            <ArrowLeftRight className="h-3 w-3" />
-            {activeSite === "changwon" ? "김해로 전환" : "창원으로 전환"}
-          </button>
-        )}
-        <div className="text-right">
-          <p className="text-[13px] font-bold text-slate-800">
-            {employee.name} <span className="text-slate-400">{employee.title}</span>
-          </p>
-          <p className="flex items-center justify-end gap-1 text-[11px] text-slate-400">
-            <ShieldCheck className="h-3 w-3" />
-            {ROLE_LABELS[employee.role] || employee.role}
-          </p>
-        </div>
-        <button onClick={onLogout} className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 active:bg-slate-50">
-          <LogOut className="h-4 w-4" />
-        </button>
+      {/* 직원 정보(이름/직급/역할)는 줄바꿈으로 깨지기 쉬우므로 헤더 두 번째 줄에 별도로 배치 */}
+      <div className="mt-2 flex items-center justify-end gap-1.5 whitespace-nowrap text-[11px] text-slate-500">
+        <span className="font-bold text-slate-800">{employee.name}</span>
+        <span className="text-slate-400">{employee.title}</span>
+        <span className="text-slate-300">·</span>
+        <span className="flex items-center gap-1">
+          <ShieldCheck className="h-3 w-3 flex-shrink-0" />
+          {ROLE_LABELS[employee.role] || employee.role}
+        </span>
       </div>
     </header>
   );
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// 창원 입출고 등록 화면 — AppSheet "입고등록/출고등록" 폼을 하나로 통합한 화면.
-// 상단 탭으로 입고/출고를 고르고, PART NO/수량 등을 입력해 GAS에 등록한다.
-// 비고에서 "폐기" 또는 "기타"를 고르면 AppSheet과 동일하게 추가 입력칸이 열린다.
+// 공용 — 바코드 스캐너 모달.
+// ZXing(@zxing/library)을 CDN에서 동적으로 불러와 사용한다. npm 패키지로
+// 설치하지 않는 이유는, 이 프로젝트가 빌드 도구 없이도 동작해야 하는
+// 환경(CodeSandbox 등)에서 쓰일 수 있기 때문 — <script> 동적 삽입 방식이
+// 가장 환경에 무관하게 안전하게 동작한다.
+// 모달이 열리면 카메라 권한을 요청하고, 바코드/QR이 인식되는 즉시
+// onScan(text)을 호출한 후 자동으로 닫힌다. 권한 거부, 카메라 없음,
+// 라이브러리 로드 실패 등 모든 실패 상황에서 안내 문구만 보여주고
+// 부모 화면(입출고 등록)은 평소처럼 직접 타이핑할 수 있도록 막지 않는다.
 // ────────────────────────────────────────────────────────────────────────
+let zxingLoadPromise = null;
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("스크립트 로드 실패: " + src));
+    document.head.appendChild(script);
+  });
+}
+function loadZXing() {
+  if (window.ZXing) return Promise.resolve(window.ZXing);
+  if (zxingLoadPromise) return zxingLoadPromise;
+
+  const CDN_URLS = [
+    "https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js",
+    "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js",
+  ];
+
+  zxingLoadPromise = (async () => {
+    let lastError = null;
+    for (const url of CDN_URLS) {
+      try {
+        await loadScriptOnce(url);
+        if (window.ZXing) return window.ZXing;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw new Error("바코드 스캐너 라이브러리를 불러오지 못했습니다. 네트워크 상태를 확인해주세요.");
+  })();
+
+  return zxingLoadPromise;
+}
+
+function BarcodeScannerModal({ onScan, onClose }) {
+  const videoRef = useRef(null);
+  const readerRef = useRef(null);
+  const [status, setStatus] = useState("loading"); // loading | scanning | error
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const ZXing = await loadZXing();
+        if (cancelled) return;
+
+        const reader = new ZXing.BrowserMultiFormatReader();
+        readerRef.current = reader;
+        setStatus("scanning");
+
+        await reader.decodeFromVideoDevice(undefined, videoRef.current, (result, err) => {
+          if (cancelled) return;
+          if (result) {
+            const text = result.getText();
+            reader.reset();
+            onScan(text);
+          }
+          // NotFoundException은 "아직 못 찾음" 상태로, 매 프레임마다 정상적으로 발생하므로 무시한다.
+        });
+      } catch (err) {
+        if (cancelled) return;
+        setError(err.message || "카메라를 시작할 수 없습니다. 카메라 권한을 확인해주세요.");
+        setStatus("error");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (readerRef.current) {
+        try {
+          readerRef.current.reset();
+        } catch (e) {
+          // 정리 중 발생하는 오류는 무시해도 안전하다.
+        }
+      }
+    };
+  }, [onScan]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-4">
+        <div className="flex items-center justify-between">
+          <p className="flex items-center gap-1.5 text-sm font-bold text-slate-900">
+            <ScanLine className="h-4 w-4" /> 바코드 스캔
+          </p>
+          <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mt-3 overflow-hidden rounded-xl bg-slate-900" style={{ aspectRatio: "4 / 3" }}>
+          <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
+        </div>
+
+        {status === "loading" && <p className="mt-3 text-center text-xs text-slate-400">카메라를 준비하는 중...</p>}
+        {status === "scanning" && <p className="mt-3 text-center text-xs text-slate-400">바코드를 화면 중앙에 비춰주세요.</p>}
+        {status === "error" && (
+          <div className="mt-3 rounded-lg border border-red-100 bg-red-50 p-3 text-xs text-red-600">
+            {error}
+            <p className="mt-1 text-red-500">아래 PART NO 칸에 직접 입력해도 됩니다.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // 창원 — 입출고 등록 화면. "장바구니" 방식: 차량번호/요청자/임시L·C 같은
 // 공통 정보는 한 번만 입력해두고, PART NO·수량 등 줄마다 달라지는 정보만
@@ -849,6 +971,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
   const [note, setNote] = useState(""); // "" | "폐기" | "기타"
   const [noteDetail, setNoteDetail] = useState("");
   const [lineError, setLineError] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   // 장바구니 — 등록 전까지 메모리에만 쌓여있는 목록
   const [cart, setCart] = useState([]);
@@ -864,6 +987,15 @@ function TransactionRegisterScreen({ employee, onBack }) {
     setPallet("");
     setNote("");
     setNoteDetail("");
+  };
+
+  /** 바코드 인식 결과를 PART NO 칸에 채운다. 모달은 즉시 닫고, 사용자가 한 번
+   * 더 확인한 뒤 수량을 입력해 "장바구니에 추가"를 누르도록 한다(스캔만으로
+   * 바로 등록까지 가지 않아, 잘못 스캔했을 때 되돌리기 쉽다). */
+  const handleScanResult = (text) => {
+    setPartNo(text);
+    setScannerOpen(false);
+    setLineError("");
   };
 
   const handleAddToCart = (e) => {
@@ -1032,13 +1164,25 @@ function TransactionRegisterScreen({ employee, onBack }) {
         <p className="text-xs font-bold text-slate-500">품목 추가</p>
         <div>
           <label className="text-xs font-semibold text-slate-500">PART NO *</label>
-          <input
-            value={partNo}
-            onChange={(e) => setPartNo(e.target.value)}
-            placeholder="바코드 스캔 또는 직접 입력"
-            disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
-          />
+          <div className="mt-1.5 flex items-center gap-2">
+            <input
+              value={partNo}
+              onChange={(e) => setPartNo(e.target.value)}
+              placeholder="바코드 스캔 또는 직접 입력"
+              disabled={submitting}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+            />
+            <button
+              type="button"
+              onClick={() => setScannerOpen(true)}
+              disabled={submitting}
+              className="flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-lg text-white disabled:opacity-50"
+              style={{ backgroundColor: BRAND.deepGreen }}
+              title="바코드 스캔"
+            >
+              <ScanLine className="h-5 w-5" />
+            </button>
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -1176,6 +1320,8 @@ function TransactionRegisterScreen({ employee, onBack }) {
           )}
         </div>
       )}
+
+      {scannerOpen && <BarcodeScannerModal onScan={handleScanResult} onClose={() => setScannerOpen(false)} />}
     </main>
   );
 }
@@ -2230,7 +2376,7 @@ function CompletionReportModal({ item, customer, onClose, onSubmit }) {
 //   - "완료 보고 제출" 버튼 클릭 → CompletionReportModal을 열어 사진/서명/GPS
 //     지오펜싱(실제 위치 기반)을 확인한 뒤 완료시각을 자동 기록한다.
 // ────────────────────────────────────────────────────────────────────────
-function GimhaeScheduleScreen({ employee, onBack }) {
+function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = false }) {
   const isAdmin = employee.role === "관리자";
   const [schedules, setSchedules] = useState([]);
   const [customers, setCustomers] = useState([]); // 거래처 좌표 조회용(지오펜싱 거리 계산에 필요)
@@ -2238,7 +2384,7 @@ function GimhaeScheduleScreen({ employee, onBack }) {
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [reportTarget, setReportTarget] = useState(null); // 완료 보고 모달을 열 대상 일정
-  const [showRegisterForm, setShowRegisterForm] = useState(false);
+  const [showRegisterForm, setShowRegisterForm] = useState(initialShowRegisterForm && isAdmin);
 
   const reload = async () => {
     setStatus("loading");
@@ -2380,7 +2526,7 @@ function GimhaeScheduleScreen({ employee, onBack }) {
                     </p>
                     {item.isCrossSupport && (
                       <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-600">
-                        <ArrowLeftRight className="h-3 w-3" /> 교차 지원 처리(소속: {SITES[item.workerHomeSite]?.label || item.workerHomeSite})
+                        <ArrowLeftRight className="h-3 w-3" /> 교차 지원 처리(소속: {item.workerHomeSite})
                       </p>
                     )}
                     {(item.photoUrl || item.signatureUrl) && (
@@ -2798,6 +2944,9 @@ function GimhaeHome({ employee }) {
   if (activeScreen === "schedule") {
     return <GimhaeScheduleScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
+  if (activeScreen === "schedule_register") {
+    return <GimhaeScheduleScreen employee={employee} onBack={() => setActiveScreen(null)} initialShowRegisterForm />;
+  }
   if (activeScreen === "customers") {
     return <GimhaeCustomerScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
@@ -2810,6 +2959,7 @@ function GimhaeHome({ employee }) {
 
   const menuCards = [
     { key: "schedule", icon: MapPin, label: "오늘일정", desc: "거래처 순회 납품 일정/완료처리", adminOnly: false },
+    { key: "schedule_register", icon: PlusCircle, label: "일정 등록", desc: "신규 납품/방문 일정 빠르게 등록", adminOnly: true },
     { key: "customers", icon: Building2, label: "거래처정보", desc: "납품 거래처 목록 조회", adminOnly: false },
     { key: "vehicles", icon: Truck, label: "법인차량", desc: "차량 현황 및 보험 정보", adminOnly: false },
     { key: "employees", icon: Users, label: "직원명부", desc: "전체 직원 조회", adminOnly: true },
