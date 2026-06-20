@@ -34,6 +34,8 @@ import {
   Layers,
   TrendingDown,
   Send,
+  Bell,
+  Megaphone,
 } from "lucide-react";
 
 // ────────────────────────────────────────────────────────────────────────
@@ -65,6 +67,22 @@ const ROLE_LABELS = {
   지원: "지원",
   일반: "일반",
 };
+
+// 역할별 배지 색상 — 기존엔 관리자/지원/일반이 모두 같은 초록색으로 표시돼 구분이
+// 안 됐다. 관리자는 기존 짙은 초록색을 유지하고, 지원은 주황색으로 구분한다(15번 요청).
+const ROLE_BADGE_COLORS = {
+  관리자: BRAND.deepGreen,
+  지원: "#ea580c",
+  일반: "#94a3b8",
+};
+
+// "관리자 전용" 화면들의 접근 권한 판정. 기존엔 "관리자"만 통과시켰는데, 15번
+// 요청에 따라 "지원" 역할도 같은 화면들을 쓸 수 있도록 함께 통과시킨다.
+// (변수명은 기존 코드 곳곳에서 그대로 쓰던 isAdmin을 유지하되, 의미를
+// "관리자 또는 지원"으로 넓혔다.)
+function isElevatedRole(role) {
+  return role === "관리자" || role === "지원";
+}
 
 // 근무지 전환 가능 권한 (백엔드 SITE_SWITCH_ROLES와 동일하게 유지)
 const SITE_SWITCHABLE_ROLES = ["관리자", "지원"];
@@ -526,10 +544,72 @@ async function getFuelCostDashboard(actorEmployeeId, yearMonth) {
       totalDistanceKm: v.total_distance_km,
       totalFuelCost: v.total_fuel_cost,
       logCount: v.log_count,
+      actualFuelCost: v.actual_fuel_cost,
+      actualFuelLiters: v.actual_fuel_liters,
+      fuelPurchaseCount: v.fuel_purchase_count,
     })),
     totalDistanceKm: data.total_distance_km,
     totalFuelCost: data.total_fuel_cost,
+    totalActualFuelCost: data.total_actual_fuel_cost,
   };
+}
+
+/** 주유 등록(영수증 기반 실제 기록) — "registerFuelPurchase" 액션. */
+async function registerFuelPurchase(actorEmployeeId, body) {
+  await callGasWebApp({
+    action: "registerFuelPurchase",
+    actor_employee_id: actorEmployeeId,
+    vehicle_label: body.vehicleLabel,
+    amount_won: body.amountWon,
+    liters: body.liters,
+    date: body.date,
+    note: body.note,
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// 알림(통합) / 마산 요청 / 김해 업체 긴급요청 — 16·17·18번 요청 대응.
+// ────────────────────────────────────────────────────────────────────────
+
+/** 알림 목록(누구나) — "listNotifications" 액션. 최신순 최대 200건. */
+async function listNotifications() {
+  const data = await callGasWebApp({ action: "listNotifications" });
+  return (data.notifications || []).map((n) => ({
+    timestamp: n.timestamp,
+    category: n.category,
+    site: n.site,
+    title: n.title,
+    content: n.content,
+    actorId: n.actor_id,
+    actorName: n.actor_name,
+  }));
+}
+
+/** 알림 설정 조회(관리자/지원 전용) — "getNotificationSettings" 액션. */
+async function getNotificationSettings(actorEmployeeId) {
+  const data = await callGasWebApp({ action: "getNotificationSettings", actor_employee_id: actorEmployeeId });
+  return data.settings || {};
+}
+
+/** 알림 설정 변경(관리자/지원 전용) — "updateNotificationSettings" 액션. */
+async function updateNotificationSettings(actorEmployeeId, settings) {
+  const data = await callGasWebApp({ action: "updateNotificationSettings", actor_employee_id: actorEmployeeId, settings });
+  return data.settings || {};
+}
+
+/** 마산(창원) 요청 등록(17번) — "registerChangwonRequest" 액션. */
+async function registerChangwonRequest(actorEmployeeId, message) {
+  await callGasWebApp({ action: "registerChangwonRequest", actor_employee_id: actorEmployeeId, message });
+}
+
+/** 김해 업체 긴급요청 등록(18번) — "registerGimhaeUrgentRequest" 액션. */
+async function registerGimhaeUrgentRequest(actorEmployeeId, message, customerName) {
+  await callGasWebApp({
+    action: "registerGimhaeUrgentRequest",
+    actor_employee_id: actorEmployeeId,
+    message,
+    customer_name: customerName,
+  });
 }
 
 /** 거래처정보(김해) 목록 — "listGimhaeCustomers" 액션. 거래처ID 없는 행은 서버가 자동 발급. */
@@ -948,12 +1028,12 @@ function ForcePasswordChangeScreen({ employee, onChanged, onLogout }) {
 // ────────────────────────────────────────────────────────────────────────
 // 공통 헤더 — 모든 로그인 후 화면 상단에 표시. 근무지/직책/이름/로그아웃.
 // ────────────────────────────────────────────────────────────────────────
-function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout }) {
+function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout, onOpenNotifications }) {
   const site = SITES[activeSite];
   const canSwitchSite = SITE_SWITCHABLE_ROLES.includes(employee.role);
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-100 bg-white px-4 py-3 sm:px-6">
+    <header className="sticky top-0 z-30 border-b border-slate-100 bg-white px-4 pb-3 sm:px-6" style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2.5">
           <img src={GREEN_LOGO_SRC} alt="그린산업 로고" className="h-9 w-9 flex-shrink-0 object-contain" />
@@ -976,6 +1056,9 @@ function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout }) {
               {activeSite === "changwon" ? "김해 전환" : "창원 전환"}
             </button>
           )}
+          <button onClick={onOpenNotifications} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 active:bg-slate-50">
+            <Bell className="h-4 w-4" />
+          </button>
           <button onClick={onLogout} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 active:bg-slate-50">
             <LogOut className="h-4 w-4" />
           </button>
@@ -993,6 +1076,162 @@ function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout }) {
         </span>
       </div>
     </header>
+  );
+}
+
+/**
+ * 알림(통합) 화면(16번 요청) — 헤더의 알림(벨) 버튼으로 들어온다.
+ *   - "알림 목록" 탭: 누구나 볼 수 있다. 마산 요청/김해 업체 긴급요청은 빨간색으로
+ *     강조해서 눈에 잘 띄게 한다(17·18번).
+ *   - "알림 설정" 탭: 관리자/지원만 볼 수 있다. 분류별로 on/off 토글이 있고,
+ *     "전체 알림"을 끄면 나머지 분류 설정과 상관없이 모든 알림이 꺼진다.
+ */
+function NotificationScreen({ employee, onBack }) {
+  const isAdmin = isElevatedRole(employee.role);
+  const [tab, setTab] = useState("feed"); // feed | settings
+  const [notifications, setNotifications] = useState([]);
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState("");
+  const [settings, setSettings] = useState(null);
+  const [settingsStatus, setSettingsStatus] = useState("idle");
+  const [settingsError, setSettingsError] = useState("");
+  const [savingKey, setSavingKey] = useState(null);
+
+  const reloadFeed = async () => {
+    setStatus("loading");
+    try {
+      const data = await listNotifications();
+      setNotifications(data);
+      setStatus("ready");
+    } catch (err) {
+      setError(err.message || "알림을 불러오지 못했습니다.");
+      setStatus("error");
+    }
+  };
+
+  const reloadSettings = async () => {
+    setSettingsStatus("loading");
+    try {
+      const data = await getNotificationSettings(employee.employeeId);
+      setSettings(data);
+      setSettingsStatus("ready");
+    } catch (err) {
+      setSettingsError(err.message || "알림 설정을 불러오지 못했습니다.");
+      setSettingsStatus("error");
+    }
+  };
+
+  useEffect(() => { reloadFeed(); }, []);
+  useEffect(() => {
+    if (tab === "settings" && isAdmin && !settings) reloadSettings();
+  }, [tab]);
+
+  const toggleSetting = async (key) => {
+    if (!settings) return;
+    const previous = settings;
+    const next = { ...settings, [key]: !settings[key] };
+    setSettings(next);
+    setSavingKey(key);
+    try {
+      await updateNotificationSettings(employee.employeeId, { [key]: next[key] });
+    } catch (err) {
+      setSettings(previous);
+      setSettingsError(err.message || "설정 변경 중 오류가 발생했습니다.");
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const isUrgentCategory = (category) => category === "changwon_request" || category === "gimhae_urgent_request";
+
+  const formatTimestamp = (iso) => {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso || "";
+    return d.toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
+
+  const SETTING_GROUPS = [
+    { site: "통합", items: [{ key: "all_enabled", label: "전체 알림" }] },
+    { site: "마산(창원)", items: [
+      { key: "changwon_transaction", label: "입출고 알림" },
+      { key: "changwon_material", label: "자재 등록 알림" },
+      { key: "changwon_request", label: "요청 알림" },
+    ] },
+    { site: "김해", items: [
+      { key: "gimhae_schedule", label: "일정 등록 알림" },
+      { key: "gimhae_complete", label: "완료 알림" },
+      { key: "gimhae_urgent_request", label: "업체 긴급요청 알림" },
+    ] },
+  ];
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <h1 className="text-xl font-bold text-slate-900">알림</h1>
+
+      <div className={`mt-4 grid gap-2 ${isAdmin ? "grid-cols-2" : "grid-cols-1"}`}>
+        <button onClick={() => setTab("feed")} className={`rounded-lg py-2 text-xs font-bold ${tab === "feed" ? "text-white" : "border border-slate-200 text-slate-500"}`} style={tab === "feed" ? { backgroundColor: BRAND.deepGreen } : {}}>
+          알림 목록
+        </button>
+        {isAdmin && (
+          <button onClick={() => setTab("settings")} className={`rounded-lg py-2 text-xs font-bold ${tab === "settings" ? "text-white" : "border border-slate-200 text-slate-500"}`} style={tab === "settings" ? { backgroundColor: BRAND.deepGreen } : {}}>
+            알림 설정
+          </button>
+        )}
+      </div>
+
+      {tab === "feed" && (
+        <>
+          {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
+          {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
+          {status === "ready" && (
+            <div className="mt-4 space-y-2">
+              {notifications.length === 0 && <p className="py-8 text-center text-xs text-slate-400">알림이 없습니다.</p>}
+              {notifications.map((n, idx) => {
+                const urgent = isUrgentCategory(n.category);
+                return (
+                  <div key={idx} className={`rounded-xl border p-4 ${urgent ? "border-red-300 bg-red-50" : "border-slate-200 bg-white"}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className={`text-sm font-bold ${urgent ? "text-red-600" : "text-slate-900"}`}>{n.title}</p>
+                      <span className="flex-shrink-0 text-[10px] text-slate-400">{formatTimestamp(n.timestamp)}</span>
+                    </div>
+                    <p className={`mt-1 text-xs ${urgent ? "text-red-700" : "text-slate-600"}`}>{n.content}</p>
+                    <p className="mt-1 text-[11px] text-slate-400">{n.site} · {n.actorName || "(미확인)"}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {tab === "settings" && isAdmin && (
+        <div className="mt-4 space-y-4">
+          {settingsStatus === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
+          {settingsStatus === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{settingsError}</p>}
+          {settingsStatus === "ready" && settings && SETTING_GROUPS.map((group) => (
+            <div key={group.site} className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-xs font-bold text-slate-400">{group.site}</p>
+              <div className="mt-2 space-y-2.5">
+                {group.items.map((item) => (
+                  <div key={item.key} className="flex items-center justify-between">
+                    <span className="text-sm text-slate-700">{item.label}</span>
+                    <button
+                      onClick={() => toggleSetting(item.key)}
+                      disabled={savingKey === item.key}
+                      className="relative h-6 w-11 flex-shrink-0 rounded-full bg-slate-200 transition-colors disabled:opacity-50"
+                      style={settings[item.key] ? { backgroundColor: BRAND.deepGreen } : {}}
+                    >
+                      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${settings[item.key] ? "left-5" : "left-0.5"}`} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </main>
   );
 }
 
@@ -1559,8 +1798,8 @@ function StockSummaryScreen({ onBack }) {
               <div key={it.partNo} className="rounded-xl border border-slate-200 bg-white p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-bold text-slate-900">{it.name || "(품명 미등록)"}</p>
-                    <p className="text-xs text-slate-400">{it.partNo} {it.lc ? `· ${it.lc}` : ""}</p>
+                    <p className="text-sm font-bold text-slate-900">{it.partNo}{it.lc ? ` · ${it.lc}` : ""}</p>
+                    <p className="text-xs text-slate-400">{it.name || "(품명 미등록)"}</p>
                   </div>
                   <div className="text-right">
                     <p className={`text-lg font-extrabold ${negative ? "text-red-500" : ""}`} style={!negative ? { color: BRAND.deepGreen } : {}}>
@@ -2114,7 +2353,7 @@ function MaterialRegisterScreen({ employee, onBack }) {
 // 창원 — 요청자명부 화면(관리자 전용 등록 + 누구나 조회).
 // ────────────────────────────────────────────────────────────────────────
 function RequesterScreen({ employee, onBack }) {
-  const isAdmin = employee.role === "관리자";
+  const isAdmin = isElevatedRole(employee.role); // 관리자 또는 지원(15번)
   const [requesters, setRequesters] = useState([]);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
@@ -2234,8 +2473,71 @@ function RequesterScreen({ employee, onBack }) {
 // ────────────────────────────────────────────────────────────────────────
 // 창원(마산) 홈화면 — 메뉴 카드에서 각 세부 화면으로 이동한다.
 // ────────────────────────────────────────────────────────────────────────
+/**
+ * 창원(마산) "요청" 등록 화면(17번 요청) — "3층 담당자, 1층 지원 바람." 같은
+ * 자연어 요청을 그대로 등록한다. 등록되면 알림 목록에 빨간색으로 표시된다.
+ */
+function ChangwonRequestScreen({ employee, onBack }) {
+  const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!message.trim()) {
+      setError("요청 내용을 입력해주세요.");
+      return;
+    }
+    setError("");
+    setSubmitting(true);
+    try {
+      await registerChangwonRequest(employee.employeeId, message.trim());
+      setDone(true);
+    } catch (err) {
+      setError(err.message || "요청 등록 중 오류가 발생했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <h1 className="text-xl font-bold text-slate-900">요청</h1>
+      <p className="mt-1 text-sm text-slate-400">
+        예: "3층 담당자, 1층 지원 바람.", "1층 후문 업체 방문 하였음. 대응 바람" — 자유롭게 적어주시면 전체 알림에 빨간색으로 표시됩니다.
+      </p>
+
+      {done ? (
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 text-center">
+          <p className="text-sm font-bold" style={{ color: BRAND.deepGreen }}>요청이 등록되었습니다.</p>
+          <button onClick={() => { setDone(false); setMessage(""); }} className="mt-3 text-xs font-semibold text-slate-400 underline">
+            새 요청 등록하기
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="mt-5 space-y-3">
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            rows={5}
+            placeholder="요청 내용을 입력해주세요"
+            disabled={submitting}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+          />
+          {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
+          <button type="submit" disabled={submitting} className="w-full rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: "#dc2626" }}>
+            {submitting ? "등록중..." : "요청 등록"}
+          </button>
+        </form>
+      )}
+    </main>
+  );
+}
+
 function ChangwonHome({ employee }) {
-  const isAdmin = employee.role === "관리자";
+  const isAdmin = isElevatedRole(employee.role); // 관리자 또는 지원(15번)
   const [activeScreen, setActiveScreen] = useState(null);
 
   if (activeScreen === "transaction") {
@@ -2262,6 +2564,9 @@ function ChangwonHome({ employee }) {
   if (activeScreen === "employees") {
     return <EmployeeListScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
+  if (activeScreen === "request") {
+    return <ChangwonRequestScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  }
 
   const menuCards = [
     { key: "transaction", icon: Package, label: "입출고 등록", desc: "PART NO 기준 입고/출고 처리", adminOnly: false },
@@ -2269,6 +2574,7 @@ function ChangwonHome({ employee }) {
     { key: "monthly_ledger", icon: Layers, label: "월별수불표", desc: "PART NO별 전월재고+입고-출고=당월재고", adminOnly: false },
     { key: "location", icon: MapPin, label: "위치찾기", desc: "도면 위 보관 위치 확인", adminOnly: false },
     { key: "templc", icon: AlertTriangle, label: "임시 L/C 재배치", desc: "임시 L/C 사용중 항목 확인", adminOnly: false },
+    { key: "request", icon: Megaphone, label: "요청", desc: "현장 요청을 자유롭게 등록(전체 알림에 표시)", adminOnly: false },
     { key: "requesters", icon: ClipboardList, label: "요청자명부", desc: "LG전자 측 출고요청자 조회/등록", adminOnly: false },
     { key: "material", icon: Building2, label: "자재등록", desc: "신규 PART NO 마스터 등록", adminOnly: true },
     { key: "employees", icon: Users, label: "직원명부", desc: "전체 직원 조회", adminOnly: true },
@@ -2312,10 +2618,18 @@ function ChangwonHome({ employee }) {
 // ────────────────────────────────────────────────────────────────────────
 // 직책 정렬 순서. 목록에 없는 직책("사원", 빈칸, 그 외 모든 값)은
 // 맨 마지막 한 그룹으로 취급해 같은 우선순위로 묶인다.
-const TITLE_ORDER = ["대표이사", "부사장", "감사", "상무", "실장", "부장", "차장", "과장", "계장", "대리"];
+const TITLE_ORDER = ["대표이사", "부사장", "감사", "상무", "실장", "부장", "차장", "과장", "계장", "대리", "조장"];
 function titleRank(title) {
   const idx = TITLE_ORDER.indexOf(String(title || "").trim());
   return idx === -1 ? TITLE_ORDER.length : idx;
+}
+
+// 소속 정렬 순서 — 창원(마산)공장을 먼저, 김해공장을 다음으로 묶어서 보여준다.
+// (같은 직책이어도 소속이 섞여 있으면 보기 어렵다는 12번 현장 피드백 대응)
+const SITE_ORDER = ["changwon", "gimhae"];
+function siteRank(homeSite) {
+  const idx = SITE_ORDER.indexOf(homeSite);
+  return idx === -1 ? SITE_ORDER.length : idx;
 }
 
 function EmployeeListScreen({ employee, onBack }) {
@@ -2345,7 +2659,7 @@ function EmployeeListScreen({ employee, onBack }) {
       const q = query.trim().toLowerCase();
       return String(e.name).toLowerCase().includes(q) || String(e.employeeId).toLowerCase().includes(q) || String(e.department || "").toLowerCase().includes(q);
     })
-    .sort((a, b) => titleRank(a.title) - titleRank(b.title) || String(a.name).localeCompare(String(b.name), "ko"));
+    .sort((a, b) => titleRank(a.title) - titleRank(b.title) || siteRank(a.homeSite) - siteRank(b.homeSite) || String(a.name).localeCompare(String(b.name), "ko"));
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
@@ -2379,7 +2693,7 @@ function EmployeeListScreen({ employee, onBack }) {
             <div key={e.employeeId} className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-bold text-slate-900">{e.name} <span className="text-xs font-normal text-slate-400">{e.title}</span></p>
-                <span className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: BRAND.deepGreen }}>
+                <span className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: ROLE_BADGE_COLORS[e.role] || BRAND.deepGreen }}>
                   {ROLE_LABELS[e.role] || e.role}
                 </span>
               </div>
@@ -2465,11 +2779,17 @@ function SignaturePad({ onChange }) {
   const drawingRef = useRef(false);
   const [hasSignature, setHasSignature] = useState(false);
 
+  // 캔버스의 "내부 해상도"(width/height 속성, 400x150)와 "화면에 보이는 크기"(CSS
+  // w-full/h-32)가 서로 다르기 때문에, 터치/클릭 좌표(화면 기준)를 그대로 캔버스에
+  // 그리면 위치가 어긋나거나 서명이 비뚤어지는 문제가 있었다(20번 오류). 화면 크기
+  // 대비 내부 해상도의 비율(scaleX/scaleY)을 곱해 보정한다.
   const getPos = (canvas, e) => {
     const rect = canvas.getBoundingClientRect();
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    return { x: clientX - rect.left, y: clientY - rect.top };
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
   };
 
   const start = (e) => {
@@ -2952,7 +3272,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
 //     지오펜싱(실제 위치 기반)을 확인한 뒤 완료시각을 자동 기록한다.
 // ────────────────────────────────────────────────────────────────────────
 function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = false }) {
-  const isAdmin = employee.role === "관리자";
+  const isAdmin = isElevatedRole(employee.role); // 관리자 또는 지원(15번)
 
   const [schedules, setSchedules] = useState([]);
   const [customers, setCustomers] = useState([]); // 거래처 좌표 조회용(지오펜싱 거리 계산에 필요)
@@ -2979,17 +3299,24 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
 
   const findCustomerFor = (item) => customers.find((c) => c.customerId === item.customerId) || null;
 
-  const handleNavigate = async (item) => {
+  // 카카오내비 호출(kakaonavi:// 커스텀 스킴)은 반드시 클릭 이벤트 안에서 "동기적으로"
+  // 바로 실행해야 한다. 서버 호출(markGimhaeDeparted)을 먼저 await로 기다리면 그 사이
+  // "사용자 제스처" 컨텍스트가 끊겨, iOS/PWA 환경에서 커스텀 URL 스킴이 무시되고 아무
+  // 반응이 없는 문제가 있었다(19번 오류). 그래서 내비 호출을 가장 먼저 동기 실행하고,
+  // 출발시각 기록은 그 뒤에 비동기로 처리한다.
+  const handleNavigate = (item) => {
+    openKakaoNavi(findCustomerFor(item), item.customerName);
     setBusyId(item.dispatchId);
-    try {
-      await markGimhaeDeparted(employee.employeeId, item.dispatchId);
-      openKakaoNavi(findCustomerFor(item), item.customerName);
-      await reload();
-    } catch (err) {
-      setError(err.message || "출발시각 기록 중 오류가 발생했습니다.");
-    } finally {
-      setBusyId(null);
-    }
+    (async () => {
+      try {
+        await markGimhaeDeparted(employee.employeeId, item.dispatchId);
+        await reload();
+      } catch (err) {
+        setError(err.message || "출발시각 기록 중 오류가 발생했습니다.");
+      } finally {
+        setBusyId(null);
+      }
+    })();
   };
 
   const handleSubmitReport = async (reportData) => {
@@ -3363,7 +3690,7 @@ function GimhaeDeliveryHistoryScreen({ employee, onBack }) {
 // (GPS 지오펜싱이 이 좌표를 기준으로 거리 계산을 하기 때문에 필수적이다).
 // ────────────────────────────────────────────────────────────────────────
 function GimhaeCustomerScreen({ employee, onBack }) {
-  const isAdmin = employee.role === "관리자";
+  const isAdmin = isElevatedRole(employee.role); // 관리자 또는 지원(15번)
   const [customers, setCustomers] = useState([]);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("loading");
@@ -3567,12 +3894,13 @@ function GimhaeCustomerForm({ employee, mode, customer, onDone, onCancel }) {
 // "거리 추가" 방식으로만 누적되도록 해 사고 입력으로 누적치가 어긋나는 걸 막는다.
 // ────────────────────────────────────────────────────────────────────────
 function GimhaeVehicleScreen({ employee, onBack }) {
-  const isAdmin = employee.role === "관리자";
+  const isAdmin = isElevatedRole(employee.role); // 관리자 또는 지원(15번)
   const [vehicles, setVehicles] = useState([]);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [mileageTarget, setMileageTarget] = useState(null); // 주행거리 등록 중인 차량
+  const [fuelTarget, setFuelTarget] = useState(null); // 주유 등록 중인 차량
   const [editTarget, setEditTarget] = useState(null); // 보험/연비 수정 중인 차량
 
   const reload = async () => {
@@ -3648,11 +3976,14 @@ function GimhaeVehicleScreen({ employee, onBack }) {
                 )}
 
                 <div className="mt-2.5 flex items-center gap-3">
-                  <button onClick={() => { setMileageTarget(mileageTarget === v.label ? null : v.label); setEditTarget(null); }} className="text-[11px] font-semibold" style={{ color: BRAND.deepGreen }}>
+                  <button onClick={() => { setMileageTarget(mileageTarget === v.label ? null : v.label); setFuelTarget(null); setEditTarget(null); }} className="text-[11px] font-semibold" style={{ color: BRAND.deepGreen }}>
                     주행거리 등록
                   </button>
+                  <button onClick={() => { setFuelTarget(fuelTarget === v.label ? null : v.label); setMileageTarget(null); setEditTarget(null); }} className="flex items-center gap-1 text-[11px] font-semibold" style={{ color: BRAND.deepGreen }}>
+                    <Fuel className="h-3 w-3" /> 주유 등록
+                  </button>
                   {isAdmin && (
-                    <button onClick={() => { setEditTarget(editTarget === v.label ? null : v.label); setMileageTarget(null); }} className="text-[11px] font-semibold text-slate-400">
+                    <button onClick={() => { setEditTarget(editTarget === v.label ? null : v.label); setMileageTarget(null); setFuelTarget(null); }} className="text-[11px] font-semibold text-slate-400">
                       보험·연비 수정
                     </button>
                   )}
@@ -3664,6 +3995,14 @@ function GimhaeVehicleScreen({ employee, onBack }) {
                     vehicle={v}
                     onDone={async () => { setMileageTarget(null); await reload(); }}
                     onCancel={() => setMileageTarget(null)}
+                  />
+                )}
+                {fuelTarget === v.label && (
+                  <VehicleFuelPurchaseForm
+                    employee={employee}
+                    vehicle={v}
+                    onDone={() => setFuelTarget(null)}
+                    onCancel={() => setFuelTarget(null)}
                   />
                 )}
                 {editTarget === v.label && (
@@ -3841,6 +4180,97 @@ function VehicleMileageForm({ employee, vehicle, onDone, onCancel }) {
   );
 }
 
+/**
+ * 주유 등록(11번 요청) — 실제 결제한 주유금액/주유량을 그대로 기록한다.
+ * 주행거리 기반 "예상 유류비"와는 별개로 남아, 유류비 대시보드에서 두 값을
+ * 비교해볼 수 있게 한다(연비값이 실제와 동떨어져 있으면 차이가 크게 난다).
+ */
+function VehicleFuelPurchaseForm({ employee, vehicle, onDone, onCancel }) {
+  const [amountWon, setAmountWon] = useState("");
+  const [liters, setLiters] = useState("");
+  const [date, setDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  });
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const amount = Number(amountWon);
+    if (!amount || amount <= 0) {
+      setError("0보다 큰 주유금액(원)을 입력해주세요.");
+      return;
+    }
+    setError("");
+    setSubmitting(true);
+    try {
+      await registerFuelPurchase(employee.employeeId, {
+        vehicleLabel: vehicle.label,
+        amountWon: amount,
+        liters: liters ? Number(liters) : "",
+        date,
+        note: note.trim(),
+      });
+      setDone(true);
+      setSubmitting(false);
+    } catch (err) {
+      setError(err.message || "주유 등록 중 오류가 발생했습니다.");
+      setSubmitting(false);
+    }
+  };
+
+  if (done) {
+    return (
+      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 text-xs">
+        <p className="font-bold" style={{ color: BRAND.deepGreen }}>주유 등록 완료</p>
+        <p className="mt-1 text-slate-500">{date} · {Number(amountWon).toLocaleString()}원{liters ? ` · ${liters}L` : ""}</p>
+        <button onClick={onDone} className="mt-2 font-bold underline text-slate-400">닫기</button>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-xs font-semibold text-slate-500">주유금액(원) *</label>
+          <input type="number" value={amountWon} onChange={(e) => setAmountWon(e.target.value)} placeholder="예: 70000" disabled={submitting}
+            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500">주유량(L)</label>
+          <input type="number" step="0.1" value={liters} onChange={(e) => setLiters(e.target.value)} placeholder="선택 입력" disabled={submitting}
+            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+        </div>
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-slate-500">주유 일자</label>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={submitting}
+          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-slate-500">메모</label>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="선택 입력" disabled={submitting}
+          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+      </div>
+
+      {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
+
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={onCancel} disabled={submitting} className="rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-600 disabled:opacity-50">
+          취소
+        </button>
+        <button type="submit" disabled={submitting} className="rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+          {submitting ? "처리중..." : "주유 등록"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 /** 보험·연비·구분 수정 폼(관리자 전용) — 주행거리는 이 폼에서 바꿀 수 없다(VehicleMileageForm으로 분리). */
 function VehicleInsuranceForm({ employee, vehicle, onDone, onCancel }) {
   const [ownershipType, setOwnershipType] = useState(vehicle.ownershipType || "법인");
@@ -3947,7 +4377,7 @@ function FuelCostDashboardScreen({ employee, onBack }) {
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">유류비 관리</h1>
-      <p className="mt-1 text-sm text-slate-400">월별 차량별 주행거리/예상 유류비 현황입니다(연비 등록 차량은 차량별 연비로, 미등록 차량은 회사 평균값으로 계산).</p>
+      <p className="mt-1 text-sm text-slate-400">월별 차량별 주행거리 기반 "예상 유류비"와, 주유 등록으로 쌓인 "실제 주유비"를 함께 보여줍니다.</p>
 
       <div className="mt-4 flex items-center gap-2">
         <input type="month" value={yearMonth} onChange={(e) => setYearMonth(e.target.value)}
@@ -3962,10 +4392,17 @@ function FuelCostDashboardScreen({ employee, onBack }) {
 
       {status === "ready" && dashboard && (
         <>
-          <div className="mt-5 rounded-xl p-4 text-white" style={{ backgroundColor: BRAND.deepGreen }}>
-            <p className="text-xs opacity-80">{dashboard.yearMonth} 전체 합계</p>
-            <p className="mt-1 text-2xl font-bold">{Number(dashboard.totalFuelCost || 0).toLocaleString()}원</p>
-            <p className="mt-0.5 text-xs opacity-80">총 주행거리 {Number(dashboard.totalDistanceKm || 0).toLocaleString()}km</p>
+          <div className="mt-5 grid grid-cols-2 gap-2">
+            <div className="rounded-xl p-4 text-white" style={{ backgroundColor: BRAND.deepGreen }}>
+              <p className="text-xs opacity-80">{dashboard.yearMonth} 예상 유류비</p>
+              <p className="mt-1 text-xl font-bold">{Number(dashboard.totalFuelCost || 0).toLocaleString()}원</p>
+              <p className="mt-0.5 text-[11px] opacity-80">총 주행거리 {Number(dashboard.totalDistanceKm || 0).toLocaleString()}km</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-xs text-slate-400">{dashboard.yearMonth} 실제 주유비</p>
+              <p className="mt-1 text-xl font-bold text-slate-800">{Number(dashboard.totalActualFuelCost || 0).toLocaleString()}원</p>
+              <p className="mt-0.5 text-[11px] text-slate-400">주유 영수증 등록 기준</p>
+            </div>
           </div>
 
           <div className="mt-4 space-y-2">
@@ -3982,9 +4419,16 @@ function FuelCostDashboardScreen({ employee, onBack }) {
                   주행거리 {Number(v.totalDistanceKm || 0).toLocaleString()}km · 등록 {v.logCount}건
                   {v.fuelEfficiencyKmpl ? ` · 연비 ${v.fuelEfficiencyKmpl}km/L` : " · 연비 미등록(회사 평균값 적용)"}
                 </p>
-                <p className="mt-1.5 text-lg font-bold" style={{ color: BRAND.deepGreen }}>
-                  {Number(v.totalFuelCost || 0).toLocaleString()}원
-                </p>
+                <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-2 text-center">
+                  <div>
+                    <p className="text-[10px] text-slate-400">예상 유류비</p>
+                    <p className="text-sm font-bold" style={{ color: BRAND.deepGreen }}>{Number(v.totalFuelCost || 0).toLocaleString()}원</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400">실제 주유비({v.fuelPurchaseCount || 0}건)</p>
+                    <p className="text-sm font-bold text-slate-700">{Number(v.actualFuelCost || 0).toLocaleString()}원</p>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -3997,8 +4441,78 @@ function FuelCostDashboardScreen({ employee, onBack }) {
 // ────────────────────────────────────────────────────────────────────────
 // 김해 홈화면 — 오늘일정/거래처정보/법인차량으로 분기한다.
 // ────────────────────────────────────────────────────────────────────────
+/**
+ * 김해 "업체 긴급요청" 등록 화면(18번 요청) — 거래처 현장에서 급하게 들어온
+ * 요청을 등록한다. 등록되면 알림 목록에 빨간색으로 표시된다.
+ */
+function GimhaeUrgentRequestScreen({ employee, onBack }) {
+  const [customerName, setCustomerName] = useState("");
+  const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!message.trim()) {
+      setError("요청 내용을 입력해주세요.");
+      return;
+    }
+    setError("");
+    setSubmitting(true);
+    try {
+      await registerGimhaeUrgentRequest(employee.employeeId, message.trim(), customerName.trim());
+      setDone(true);
+    } catch (err) {
+      setError(err.message || "긴급요청 등록 중 오류가 발생했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <h1 className="text-xl font-bold text-slate-900">업체 긴급요청</h1>
+      <p className="mt-1 text-sm text-slate-400">거래처 현장에서 급하게 들어온 요청을 등록해주세요. 등록되면 전체 알림에 빨간색으로 표시됩니다.</p>
+
+      {done ? (
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 text-center">
+          <p className="text-sm font-bold" style={{ color: BRAND.deepGreen }}>긴급요청이 등록되었습니다.</p>
+          <button onClick={() => { setDone(false); setMessage(""); setCustomerName(""); }} className="mt-3 text-xs font-semibold text-slate-400 underline">
+            새 요청 등록하기
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="mt-5 space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-500">거래처명(선택)</label>
+            <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="예: (주)네오플라테크창원" disabled={submitting}
+              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500">요청 내용 *</label>
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              rows={5}
+              placeholder="요청 내용을 입력해주세요"
+              disabled={submitting}
+              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+          {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
+          <button type="submit" disabled={submitting} className="w-full rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: "#dc2626" }}>
+            {submitting ? "등록중..." : "긴급요청 등록"}
+          </button>
+        </form>
+      )}
+    </main>
+  );
+}
+
 function GimhaeHome({ employee }) {
-  const isAdmin = employee.role === "관리자";
+  const isAdmin = isElevatedRole(employee.role); // 관리자 또는 지원(15번)
   const [activeScreen, setActiveScreen] = useState(null);
 
   if (activeScreen === "schedule") {
@@ -4025,6 +4539,9 @@ function GimhaeHome({ employee }) {
   if (activeScreen === "employees") {
     return <EmployeeListScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
+  if (activeScreen === "urgent_request") {
+    return <GimhaeUrgentRequestScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  }
 
   const menuCards = [
     { key: "schedule", icon: MapPin, label: "오늘일정", desc: "거래처 순회 납품 일정/완료처리", adminOnly: false },
@@ -4033,6 +4550,7 @@ function GimhaeHome({ employee }) {
     { key: "delivery_history", icon: Clock, label: "납품경로 타임라인", desc: "날짜·기사별 방문 순서 + 지도로 보기", adminOnly: true },
     { key: "customers", icon: Building2, label: "거래처정보", desc: "납품 거래처 목록 조회", adminOnly: false },
     { key: "vehicles", icon: Truck, label: "차량관리", desc: "법인·개인 차량 현황 및 보험 정보", adminOnly: false },
+    { key: "urgent_request", icon: Megaphone, label: "업체 긴급요청", desc: "거래처 현장의 긴급 요청 등록", adminOnly: false },
     { key: "fuel_dashboard", icon: Fuel, label: "유류비 관리", desc: "월별 차량별 주행거리/유류비 현황", adminOnly: true },
     { key: "employees", icon: Users, label: "직원명부", desc: "전체 직원 조회", adminOnly: true },
   ];
@@ -4119,6 +4637,64 @@ export default function GreenSyncApp() {
   // (실제 직원명부의 소속은 그대로 유지되며, 새로고침하면 homeSite로 복귀)
   const [activeSite, setActiveSite] = useState(() => loadSavedSession()?.activeSite || null);
   const [switchError, setSwitchError] = useState("");
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  // 화면을 위로 당겼을 때 생기는 "고무줄(바운스) 스크롤"을 막는다. iOS에서 이 바운스가
+  // 일어나는 동안 화면 맨 위쪽(와이파이/시간 표시 영역)이 같이 밀려 내려와 그 위에 있는
+  // 헤더 버튼이 묻히면서 터치가 안 먹는 문제가 있었다(14번 요청). 앱 전체에 한 번만 적용.
+  useEffect(() => {
+    const styleEl = document.createElement("style");
+    styleEl.setAttribute("data-greensync-global", "true");
+    styleEl.textContent = `
+      html, body { overscroll-behavior-y: none; height: 100%; }
+      #root { min-height: 100%; }
+    `;
+    document.head.appendChild(styleEl);
+    return () => { document.head.removeChild(styleEl); };
+  }, []);
+
+  // 스와이프 뒤로가기(8번 요청) — 화면 왼쪽 가장자리에서 시작해 오른쪽으로 미는
+  // 동작을 감지하면, 현재 화면에 있는 "← 홈으로" 버튼을 찾아 대신 눌러준다.
+  // 화면마다 별도로 손대지 않고 한 곳에서만 처리할 수 있도록, 모든 화면이 같은
+  // 문구의 뒤로가기 버튼을 쓰는 기존 관례를 그대로 활용했다.
+  useEffect(() => {
+    const EDGE_PX = 24; // 화면 왼쪽 끝 이 범위 안에서 시작한 터치만 스와이프 뒤로가기로 인식
+    const SWIPE_PX = 70; // 오른쪽으로 이 정도 이상 이동해야 "뒤로가기"로 인정
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+
+    const onTouchStart = (e) => {
+      const t = e.touches[0];
+      if (t && t.clientX <= EDGE_PX) {
+        startX = t.clientX;
+        startY = t.clientY;
+        tracking = true;
+      } else {
+        tracking = false;
+      }
+    };
+
+    const onTouchEnd = (e) => {
+      if (!tracking) return;
+      tracking = false;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - startX;
+      const dy = Math.abs(t.clientY - startY);
+      if (dx > SWIPE_PX && dy < 60) {
+        const backButton = Array.from(document.querySelectorAll("button")).find((b) => b.textContent.trim() === "← 홈으로");
+        if (backButton) backButton.click();
+      }
+    };
+
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchend", onTouchEnd);
+    };
+  }, []);
 
   const handleLogin = (emp, mustChangePassword) => {
     setEmployee(emp);
@@ -4164,11 +4740,13 @@ export default function GreenSyncApp() {
   // screen === "home" — activeSite(전환 가능)에 따라 창원/김해 화면으로 분기
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
-      <GlobalHeader employee={employee} activeSite={activeSite} onSwitchSite={handleSwitchSite} onLogout={handleLogout} />
+      <GlobalHeader employee={employee} activeSite={activeSite} onSwitchSite={handleSwitchSite} onLogout={handleLogout} onOpenNotifications={() => setShowNotifications(true)} />
       {switchError && (
         <p className="mx-auto max-w-3xl px-6 pt-3 text-xs font-semibold text-red-500">{switchError}</p>
       )}
-      {activeSite === "changwon" ? (
+      {showNotifications ? (
+        <NotificationScreen employee={employee} onBack={() => setShowNotifications(false)} />
+      ) : activeSite === "changwon" ? (
         <ChangwonHome employee={employee} />
       ) : activeSite === "gimhae" ? (
         <GimhaeHome employee={employee} />
