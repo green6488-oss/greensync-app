@@ -117,6 +117,15 @@ function distanceInMeters(lat1, lng1, lat2, lng2) {
  * 오늘일정/동선 최적화 화면이 자정을 넘겨서도 켜져 있을 때, 날짜가 바뀐 걸
  * 감지해서 화면을 자동으로 초기화하는 데 쓴다(44/45번 요청).
  */
+/**
+ * 사번을 비교할 때 대소문자/앞뒤 공백 차이로 안 맞아떨어지는 일이 없도록
+ * 항상 정규화해서 비교한다(48번 버그 — 수락자 식별 비교에 사용).
+ */
+function isSameEmployeeId(a, b) {
+  if (!a || !b) return false;
+  return String(a).trim().toUpperCase() === String(b).trim().toUpperCase();
+}
+
 function getKstDateStr() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }); // "en-CA" → yyyy-MM-dd 형식
 }
@@ -809,6 +818,8 @@ async function listGimhaeSchedule() {
 /**
  * 납품경로 타임라인(관리자 전용) — "listGimhaeDeliveryHistory" 액션.
  * 지정한 날짜에 완료된 일정을 처리기사별로 묶어, 완료시각 순서(=방문 순서)로 돌려준다.
+ * 오늘 날짜를 조회하면 아직 끝나지 않은 "납품중" 항목도 같이 내려와서, 실시간
+ * 현황판처럼 "지금 누가 어디로 가고 있는지"까지 볼 수 있다.
  */
 async function listGimhaeDeliveryHistory(actorEmployeeId, dateStr) {
   const data = await callGasWebApp({
@@ -818,15 +829,19 @@ async function listGimhaeDeliveryHistory(actorEmployeeId, dateStr) {
   });
   return {
     date: data.date,
+    isToday: !!data.is_today,
     drivers: (data.drivers || []).map((d) => ({
       workerName: d.worker_name,
       stopCount: d.stop_count,
+      inProgressCount: d.in_progress_count || 0,
       stops: (d.stops || []).map((s) => ({
         visitOrder: s.visit_order,
         dispatchId: s.dispatch_id,
         customerId: s.customer_id,
         customerName: s.customer_name,
         taskDescription: s.task_description,
+        status: s.status,
+        registeredAt: s.registered_at,
         departedAt: s.departed_at,
         completedAt: s.completed_at,
         deliveryAddress: s.delivery_address,
@@ -3369,7 +3384,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
       // 화면에도 계속 노출/선택되던 문제). 내가 수락한 것도 같이 보여줘야
       // "이미 수락한 곳 + 새로 추가한 곳"을 합쳐서 방문 순서를 분석할 수 있다.
       setSchedules(
-        data.filter((s) => s.status === "대기" || (s.status === "납품중" && s.workerEmployeeId === employee.employeeId))
+        data.filter((s) => s.status === "대기" || (s.status === "납품중" && isSameEmployeeId(s.workerEmployeeId, employee.employeeId)))
       );
       setStatus("ready");
     } catch (err) {
@@ -3684,7 +3699,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
           <div className="mt-3 space-y-2">
             {personalGroups.map((group) => {
               const key = group.anchorDispatchId;
-              const isMine = group.workerEmployeeId === employee.employeeId;
+              const isMine = isSameEmployeeId(group.workerEmployeeId, employee.employeeId);
               return (
                 <div key={key} className="rounded-xl border border-slate-100 p-3" style={{ backgroundColor: BRAND.greenSoft }}>
                   <p className="text-[11px] font-bold" style={{ color: BRAND.deepGreen }}>
@@ -3943,10 +3958,10 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
   const waiting = schedules.filter((s) => s.status === "대기" || (s.status !== "완료" && s.status !== "납품중"));
   const inDelivery = schedules
     .filter((s) => s.status === "납품중")
-    .filter((s) => !showMineOnly || s.workerEmployeeId === employee.employeeId);
+    .filter((s) => !showMineOnly || isSameEmployeeId(s.workerEmployeeId, employee.employeeId));
   const completed = schedules
     .filter((s) => s.status === "완료")
-    .filter((s) => !showMineOnly || s.workerEmployeeId === employee.employeeId);
+    .filter((s) => !showMineOnly || isSameEmployeeId(s.workerEmployeeId, employee.employeeId));
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
@@ -4042,6 +4057,11 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
               {inDelivery.length === 0 && <p className="py-6 text-center text-xs text-slate-400">납품중인 일정이 없습니다.</p>}
               {inDelivery.map((item) => {
                 const busy = busyId === item.dispatchId;
+                // 48번 요청 — "전체 보기" 모드에서는 다른 담당자의 납품중 항목도 보이지만,
+                // 진행 버튼은 본인 것 또는 관리자일 때만 누를 수 있게 한다(서버에서도
+                // 동일하게 막지만, 누르고 나서 에러를 보는 것보다 미리 막는 게 낫다).
+                // 수락자사번이 없는 과거 데이터는 안전하게 그대로 허용한다.
+                const isMyDelivery = !item.workerEmployeeId || isSameEmployeeId(item.workerEmployeeId, employee.employeeId) || isAdmin;
                 return (
                   <div key={item.dispatchId} className="rounded-2xl border border-slate-200 bg-white p-4">
                     <div className="flex items-start justify-between">
@@ -4072,23 +4092,29 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                   );
                 })()}
 
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button
-                        onClick={() => handleNavigate(item)}
-                        disabled={busy}
-                        className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-700 disabled:opacity-50"
-                      >
-                        <Navigation className="h-3.5 w-3.5" /> 카카오내비로 길찾기
-                      </button>
-                      <button
-                        onClick={() => setReportTarget(item)}
-                        disabled={busy}
-                        className="flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50"
-                        style={{ backgroundColor: BRAND.deepGreen }}
-                      >
-                        <CheckCircle2 className="h-3.5 w-3.5" /> 완료 보고 제출
-                      </button>
-                    </div>
+                    {isMyDelivery ? (
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => handleNavigate(item)}
+                          disabled={busy}
+                          className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-700 disabled:opacity-50"
+                        >
+                          <Navigation className="h-3.5 w-3.5" /> 카카오내비로 길찾기
+                        </button>
+                        <button
+                          onClick={() => setReportTarget(item)}
+                          disabled={busy}
+                          className="flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50"
+                          style={{ backgroundColor: BRAND.deepGreen }}
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" /> 완료 보고 제출
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-center text-[11px] font-semibold text-slate-400">
+                        다른 담당자의 일정입니다(진행/완료는 본인만 가능)
+                      </p>
+                    )}
                   </div>
                 );
               })}
@@ -4260,15 +4286,22 @@ function GimhaeDeliveryHistoryScreen({ employee, onBack }) {
   })();
   const [date, setDate] = useState(todayStr);
   const [drivers, setDrivers] = useState([]);
-  const [expandedWorker, setExpandedWorker] = useState(null);
+  const [isToday, setIsToday] = useState(true);
+  // 현황판처럼 한눈에 보이는 게 핵심이라, 기본은 전부 펼친 상태로 보여주고
+  // 필요할 때만 개별로 접을 수 있게 한다(이전엔 기본 전부 접혀있어서 하나씩
+  // 눌러봐야 했음).
+  const [collapsedWorkers, setCollapsedWorkers] = useState(new Set());
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
+
+  const isViewingToday = date === todayStr;
 
   const reload = async (targetDate) => {
     setStatus("loading");
     try {
       const data = await listGimhaeDeliveryHistory(employee.employeeId, targetDate);
       setDrivers(data.drivers);
+      setIsToday(data.isToday);
       setStatus("ready");
     } catch (err) {
       setError(err.message || "납품경로 기록을 불러오지 못했습니다.");
@@ -4278,6 +4311,23 @@ function GimhaeDeliveryHistoryScreen({ employee, onBack }) {
 
   useEffect(() => { reload(date); }, []);
 
+  // 오늘 날짜를 보고 있을 때는 30초마다 자동으로 새로고침해서, 누가 지금
+  // 어디로 이동중인지/방금 도착했는지를 실시간 현황판처럼 보여준다.
+  useEffect(() => {
+    if (!isViewingToday) return;
+    const intervalId = setInterval(() => reload(date), 30000);
+    return () => clearInterval(intervalId);
+  }, [isViewingToday, date]);
+
+  const toggleCollapsed = (workerName) => {
+    setCollapsedWorkers((prev) => {
+      const next = new Set(prev);
+      if (next.has(workerName)) next.delete(workerName);
+      else next.add(workerName);
+      return next;
+    });
+  };
+
   const formatTime = (iso) => {
     if (!iso) return "-";
     const d = new Date(iso);
@@ -4285,11 +4335,15 @@ function GimhaeDeliveryHistoryScreen({ employee, onBack }) {
     return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
   };
 
+  const totalInProgress = drivers.reduce((sum, d) => sum + (d.inProgressCount || 0), 0);
+
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">납품경로 타임라인</h1>
-      <p className="mt-1 text-sm text-slate-400">날짜를 선택하면 그날 담당자별로 방문한 거래처 순서를 볼 수 있습니다.</p>
+      <p className="mt-1 text-sm text-slate-400">
+        {isToday ? "오늘은 진행중인 배송까지 실시간으로 보여줍니다(30초마다 자동 새로고침)." : "그날 담당자별로 방문한 거래처 순서를 볼 수 있습니다."}
+      </p>
 
       <div className="mt-4 flex items-center gap-2">
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
@@ -4299,49 +4353,74 @@ function GimhaeDeliveryHistoryScreen({ employee, onBack }) {
         </button>
       </div>
 
+      {status === "ready" && isToday && (
+        <p className="mt-3 flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-700">
+          <Truck className="h-3.5 w-3.5 flex-shrink-0" /> 지금 이동중인 배송 {totalInProgress}건
+        </p>
+      )}
+
       {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
       {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
 
       {status === "ready" && (
         <div className="mt-5 space-y-3">
-          {drivers.length === 0 && <p className="py-8 text-center text-xs text-slate-400">이 날짜에 완료된 납품 기록이 없습니다.</p>}
+          {drivers.length === 0 && <p className="py-8 text-center text-xs text-slate-400">이 날짜에 표시할 납품 기록이 없습니다.</p>}
           {drivers.map((d) => {
-            const expanded = expandedWorker === d.workerName;
+            const collapsed = collapsedWorkers.has(d.workerName);
             const routeUrl = buildRouteMapUrl(d.stops);
             const missingCoordCount = d.stops.filter((s) => s.latitude == null || s.longitude == null).length;
             return (
               <div key={d.workerName} className="rounded-xl border border-slate-200 bg-white p-4">
-                <button onClick={() => setExpandedWorker(expanded ? null : d.workerName)} className="flex w-full items-center justify-between text-left">
+                <button onClick={() => toggleCollapsed(d.workerName)} className="flex w-full items-center justify-between text-left">
                   <span>
                     <p className="text-sm font-bold text-slate-900">{d.workerName}</p>
-                    <p className="text-xs text-slate-400">납품 {d.stopCount}건</p>
+                    <p className="text-xs text-slate-400">
+                      납품 {d.stopCount}건{d.inProgressCount > 0 ? ` · 이동중 ${d.inProgressCount}건` : ""}
+                    </p>
                   </span>
                   <Clock className="h-4 w-4 text-slate-300" />
                 </button>
 
-                {expanded && (
+                {!collapsed && (
                   <>
                     <div className="mt-3 space-y-0">
-                      {d.stops.map((s, idx) => (
-                        <div key={s.dispatchId} className="flex gap-3">
-                          <div className="flex flex-col items-center">
-                            <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white" style={{ backgroundColor: BRAND.deepGreen }}>
-                              {s.visitOrder}
-                            </span>
-                            {idx < d.stops.length - 1 && <span className="mt-0.5 h-full w-px flex-1 bg-slate-200" />}
+                      {d.stops.map((s, idx) => {
+                        const isInProgress = s.status === "납품중";
+                        const hasDeparted = !!s.departedAt;
+                        return (
+                          <div key={s.dispatchId} className="flex gap-3">
+                            <div className="flex flex-col items-center">
+                              <span
+                                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
+                                style={{ backgroundColor: isInProgress ? "#f59e0b" : BRAND.deepGreen }}
+                              >
+                                {s.visitOrder}
+                              </span>
+                              {idx < d.stops.length - 1 && <span className="mt-0.5 h-full w-px flex-1 bg-slate-200" />}
+                            </div>
+                            <div className="flex-1 pb-3">
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-sm font-bold text-slate-900">{s.customerName}</p>
+                                <span
+                                  className="rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                                  style={isInProgress ? { backgroundColor: "#fef3c7", color: "#b45309" } : { backgroundColor: BRAND.greenSoft, color: BRAND.deepGreen }}
+                                >
+                                  {isInProgress ? (hasDeparted ? "이동중" : "출발 전") : "완료"}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-400">{s.deliveryAddress || "주소 미등록"}</p>
+                              <p className="mt-0.5 text-[11px] text-slate-400">
+                                {isInProgress
+                                  ? `출발 ${formatTime(s.departedAt)} → 진행중`
+                                  : `출발 ${formatTime(s.departedAt)} → 완료 ${formatTime(s.completedAt)}`}
+                                {(s.latitude == null || s.longitude == null) && (
+                                  <span className="ml-1 font-semibold text-amber-600">· 좌표 미등록</span>
+                                )}
+                              </p>
+                            </div>
                           </div>
-                          <div className="flex-1 pb-3">
-                            <p className="text-sm font-bold text-slate-900">{s.customerName}</p>
-                            <p className="text-xs text-slate-400">{s.deliveryAddress || "주소 미등록"}</p>
-                            <p className="mt-0.5 text-[11px] text-slate-400">
-                              출발 {formatTime(s.departedAt)} → 완료 {formatTime(s.completedAt)}
-                              {(s.latitude == null || s.longitude == null) && (
-                                <span className="ml-1 font-semibold text-amber-600">· 좌표 미등록</span>
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {routeUrl ? (
@@ -5231,7 +5310,7 @@ function GimhaeHome({ employee }) {
     { key: "schedule", icon: MapPin, label: "오늘일정", desc: "거래처 순회 납품 일정/완료처리", adminOnly: false },
     { key: "schedule_register", icon: PlusCircle, label: "일정 등록", desc: "신규 납품/방문 일정 빠르게 등록", adminOnly: true },
     { key: "route_optimizer", icon: Route, label: "동선 최적화", desc: "합짐 제안 + 절감 효과(거리/시간/유류비)", adminOnly: true },
-    { key: "delivery_history", icon: Clock, label: "납품경로 타임라인", desc: "날짜·담당자별 방문 순서 + 지도로 보기", adminOnly: true },
+    { key: "delivery_history", icon: Clock, label: "납품경로 타임라인", desc: "오늘은 실시간 현황판, 지난날은 방문 기록 + 지도로 보기", adminOnly: true },
     { key: "customers", icon: Building2, label: "거래처정보", desc: "납품 거래처 목록 조회", adminOnly: false },
     { key: "vehicles", icon: Truck, label: "차량관리", desc: "법인·개인 차량 현황 및 보험 정보", adminOnly: false },
     { key: "urgent_request", icon: Megaphone, label: "업체 긴급요청", desc: "거래처 현장의 긴급 요청 등록", adminOnly: false, urgent: true },
