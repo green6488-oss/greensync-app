@@ -2647,7 +2647,7 @@ function ChangwonHome({ employee }) {
     { key: "monthly_ledger", icon: Layers, label: "월별수불표", desc: "PART NO별 전월재고+입고-출고=당월재고", adminOnly: false },
     { key: "location", icon: MapPin, label: "위치찾기", desc: "도면 위 보관 위치 확인", adminOnly: false },
     { key: "templc", icon: AlertTriangle, label: "임시 L/C 재배치", desc: "임시 L/C 사용중 항목 확인", adminOnly: false },
-    { key: "request", icon: Megaphone, label: "요청", desc: "현장 요청을 자유롭게 등록(전체 알림에 표시)", adminOnly: false },
+    { key: "request", icon: Megaphone, label: "요청", desc: "현장 요청을 자유롭게 등록(전체 알림에 표시)", adminOnly: false, urgent: true },
     { key: "requesters", icon: ClipboardList, label: "요청자명부", desc: "LG전자 측 출고요청자 조회/등록", adminOnly: false },
     { key: "material", icon: Building2, label: "자재등록", desc: "신규 PART NO 마스터 등록", adminOnly: true },
     { key: "employees", icon: Users, label: "직원명부", desc: "전체 직원 조회", adminOnly: true },
@@ -2672,8 +2672,8 @@ function ChangwonHome({ employee }) {
                 locked ? "border-slate-100 bg-slate-50 opacity-50" : "border-slate-200 bg-white shadow-sm active:bg-slate-50"
               }`}
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: BRAND.greenSoft }}>
-                <card.icon className="h-5 w-5" style={{ color: BRAND.deepGreen }} />
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: card.urgent ? "#fee2e2" : BRAND.greenSoft }}>
+                <card.icon className="h-5 w-5" style={{ color: card.urgent ? "#dc2626" : BRAND.deepGreen }} />
               </span>
               <span className="text-[15px] font-bold text-slate-900">{card.label}</span>
               <span className="text-xs text-slate-400">{card.desc}</span>
@@ -4640,7 +4640,7 @@ function GimhaeHome({ employee }) {
     { key: "delivery_history", icon: Clock, label: "납품경로 타임라인", desc: "날짜·기사별 방문 순서 + 지도로 보기", adminOnly: true },
     { key: "customers", icon: Building2, label: "거래처정보", desc: "납품 거래처 목록 조회", adminOnly: false },
     { key: "vehicles", icon: Truck, label: "차량관리", desc: "법인·개인 차량 현황 및 보험 정보", adminOnly: false },
-    { key: "urgent_request", icon: Megaphone, label: "업체 긴급요청", desc: "거래처 현장의 긴급 요청 등록", adminOnly: false },
+    { key: "urgent_request", icon: Megaphone, label: "업체 긴급요청", desc: "거래처 현장의 긴급 요청 등록", adminOnly: false, urgent: true },
     { key: "fuel_dashboard", icon: Fuel, label: "유류비 관리", desc: "월별 차량별 주행거리/유류비 현황", adminOnly: true },
     { key: "employees", icon: Users, label: "직원명부", desc: "전체 직원 조회", adminOnly: true },
   ];
@@ -4664,8 +4664,8 @@ function GimhaeHome({ employee }) {
                 locked ? "border-slate-100 bg-slate-50 opacity-50" : "border-slate-200 bg-white shadow-sm active:bg-slate-50"
               }`}
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: BRAND.greenSoft }}>
-                <card.icon className="h-5 w-5" style={{ color: BRAND.deepGreen }} />
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: card.urgent ? "#fee2e2" : BRAND.greenSoft }}>
+                <card.icon className="h-5 w-5" style={{ color: card.urgent ? "#dc2626" : BRAND.deepGreen }} />
               </span>
               <span className="text-[15px] font-bold text-slate-900">{card.label}</span>
               <span className="text-xs text-slate-400">{card.desc}</span>
