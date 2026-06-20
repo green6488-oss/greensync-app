@@ -1441,6 +1441,49 @@ function TransactionRegisterScreen({ employee, onBack }) {
     resetLineInputs();
   };
 
+  /**
+   * 품목이 1건뿐일 때, 장바구니에 담는 단계 없이 바로 등록한다(현장 피드백 —
+   * "단일 건일 때는 등록 버튼이 안 보이고 장바구니를 거쳐야만 등록된다" 대응).
+   * 장바구니에 이미 다른 품목이 들어있을 때는 순서가 헷갈릴 수 있어 이 버튼
+   * 자체를 보여주지 않는다(그때는 "전체 등록"으로 한꺼번에 처리).
+   */
+  const handleSubmitSingle = async (e) => {
+    e.preventDefault();
+    if (!partNo.trim()) {
+      setLineError("PART NO를 입력해주세요.");
+      return;
+    }
+    const qty = Number(quantity);
+    if (!qty || qty <= 0) {
+      setLineError("수량은 1 이상의 숫자여야 합니다.");
+      return;
+    }
+    setLineError("");
+    setSubmitting(true);
+    setLastSummary(null);
+    try {
+      const result = await createTransaction(employee.employeeId, {
+        partNo: partNo.trim(),
+        type,
+        quantity: qty,
+        pallet,
+        vehicleNo,
+        requester,
+        tempLcUsed,
+        tempLc,
+        fieldWorkerName: employee.name,
+        note,
+        noteDetail,
+      });
+      setLastSummary({ succeeded: [{ line: { cartId: "single", partNo: partNo.trim(), quantity: qty }, result }], failed: [] });
+      resetLineInputs();
+    } catch (err) {
+      setLineError(err.message || "처리 중 오류가 발생했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleRemoveFromCart = (cartId) => {
     setCart((prev) => prev.filter((line) => line.cartId !== cartId));
   };
@@ -1654,14 +1697,36 @@ function TransactionRegisterScreen({ employee, onBack }) {
 
         {lineError && <p className="text-xs font-semibold text-red-500">{lineError}</p>}
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="flex w-full items-center justify-center gap-1.5 rounded-xl border-2 border-dashed py-3 text-sm font-bold disabled:opacity-50"
-          style={{ borderColor: BRAND.deepGreen, color: BRAND.deepGreen }}
-        >
-          <PlusCircle className="h-4 w-4" /> 장바구니에 추가
-        </button>
+        {cart.length === 0 ? (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex items-center justify-center gap-1.5 rounded-xl border-2 border-dashed py-3 text-sm font-bold disabled:opacity-50"
+              style={{ borderColor: BRAND.deepGreen, color: BRAND.deepGreen }}
+            >
+              <PlusCircle className="h-4 w-4" /> 장바구니에 추가
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmitSingle}
+              disabled={submitting}
+              className="flex items-center justify-center gap-1.5 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50"
+              style={{ backgroundColor: BRAND.deepGreen }}
+            >
+              {submitting ? "등록중..." : "등록"}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="submit"
+            disabled={submitting}
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl border-2 border-dashed py-3 text-sm font-bold disabled:opacity-50"
+            style={{ borderColor: BRAND.deepGreen, color: BRAND.deepGreen }}
+          >
+            <PlusCircle className="h-4 w-4" /> 장바구니에 추가
+          </button>
+        )}
       </form>
 
       {/* 장바구니 목록 */}
@@ -4695,6 +4760,9 @@ export default function GreenSyncApp() {
   // 24번 요청 — 앱을 켜놓고 사용하는 동안 새 알림이 생기면 화면 중앙에 팝업으로
   // 띄운다. 로그인 화면에서는 동작하지 않고, "home" 화면일 때만 일정 주기로
   // 새 알림이 있는지 확인한다.
+  // 28번 요청 — 팝업은 "요청"/"업체 긴급요청"처럼 빨간색으로 강조되는 긴급성
+  // 알림만 띄운다. 입출고/자재등록/일정등록/완료 같은 일반 알림은 팝업으로
+  // 방해하지 않고, 알림 목록(벨 아이콘)에서는 그대로 다 보인다.
   useEffect(() => {
     if (screen !== "home") return;
     let cancelled = false;
@@ -4709,9 +4777,11 @@ export default function GreenSyncApp() {
       try {
         const list = await listNotifications();
         if (cancelled || list.length === 0) return;
+        const urgentList = list.filter((n) => isUrgentNotificationCategory(n.category));
+        if (urgentList.length === 0) return;
         const lastSeen = getLastSeenNotifTimestamp();
         const lastSeenTime = lastSeen ? new Date(lastSeen).getTime() : 0;
-        const newest = list[0]; // 서버가 항상 최신순으로 내려준다.
+        const newest = urgentList[0]; // 서버가 항상 최신순으로 내려준다.
         if (new Date(newest.timestamp).getTime() > lastSeenTime) {
           setPopupNotification(newest);
           setLastSeenNotifTimestamp(newest.timestamp);
