@@ -649,6 +649,13 @@ function isUrgentNotificationCategory(category) {
   return category === "changwon_request" || category === "gimhae_urgent_request";
 }
 
+/** 알림 시각을 "6월 20일 18:09" 형태로 표시 — 알림 목록/팝업에서 공용으로 사용. */
+function formatNotificationTimestamp(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso || "";
+  return d.toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
 /** 알림 목록(누구나) — "listNotifications" 액션. 최신순 최대 200건. */
 async function listNotifications() {
   const data = await callGasWebApp({ action: "listNotifications" });
@@ -882,6 +889,17 @@ async function optimizeGimhaeRoute(actorEmployeeId, customerIds, origin) {
       : null,
     skippedCustomers: (data.skipped_customers || []).map((s) => ({ customerId: s.customer_id, customerName: s.customer_name })),
   };
+}
+
+/** 최적화된 동선을 특정 기사님에게 푸시로 전송(33번) — "shareOptimizedRoute" 액션. */
+async function shareOptimizedRoute(actorEmployeeId, targetEmployeeId, stopNames) {
+  const data = await callGasWebApp({
+    action: "shareOptimizedRoute",
+    actor_employee_id: actorEmployeeId,
+    target_employee_id: targetEmployeeId,
+    stops: stopNames,
+  });
+  return { sentToName: data.sent_to_name };
 }
 
 /** 김해 합짐 제안(관리자 전용) — 오늘 대기중인 일정을 거리 기준으로 묶어서 보여준다. */
@@ -1223,13 +1241,7 @@ function NotificationScreen({ employee, onBack }) {
   };
 
   const isUrgentCategory = isUrgentNotificationCategory;
-
-  const formatTimestamp = (iso) => {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return iso || "";
-    return d.toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  };
-
+  const formatTimestamp = formatNotificationTimestamp;
   const SETTING_GROUPS = [
     { site: "통합", items: [{ key: "all_enabled", label: "전체 알림" }] },
     { site: "마산(창원)", items: [
@@ -3172,6 +3184,13 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
   const [groups, setGroups] = useState([]);
   const [groupsStatus, setGroupsStatus] = useState("loading");
 
+  // 33번 요청 — "최적화된 동선을 기사 앱으로 전송"용 상태.
+  const [gimhaeEmployees, setGimhaeEmployees] = useState([]);
+  const [shareTargetId, setShareTargetId] = useState("");
+  const [sharing, setSharing] = useState(false);
+  const [shareError, setShareError] = useState("");
+  const [shareSentName, setShareSentName] = useState(null);
+
   const reload = async () => {
     setStatus("loading");
     try {
@@ -3195,9 +3214,19 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
     }
   };
 
+  const loadGimhaeEmployees = async () => {
+    try {
+      const data = await listEmployees(employee.employeeId);
+      setGimhaeEmployees(data.filter((e) => e.homeSite === "gimhae"));
+    } catch (err) {
+      // 직원 목록을 못 불러와도 동선 분석 자체에는 영향 없음 — 전송 버튼만 비활성화됨.
+    }
+  };
+
   useEffect(() => {
     reload();
     loadGroups();
+    loadGimhaeEmployees();
   }, []);
 
   const toggleSelect = (customerId) => {
@@ -3384,14 +3413,50 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
             </p>
           )}
 
-          <button
-            disabled
-            title="다음 단계 과제 — 추천 순서를 오늘일정 표시 순서/기사 앱에 자동 반영하는 기능은 아직 준비중입니다"
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white opacity-50"
-            style={{ backgroundColor: "#1e293b" }}
-          >
-            <Send className="h-4 w-4" /> 최적화된 동선을 기사 앱으로 전송 (준비중)
-          </button>
+          <div className="mt-4 rounded-xl border border-slate-200 p-3">
+            <p className="text-xs font-bold text-slate-500">추천 순서를 기사님 휴대폰으로 보내기</p>
+            <p className="mt-0.5 text-[11px] text-slate-400">선택한 기사님께 위 "카카오 AI 추천 순서"를 푸시 알림으로 보냅니다.</p>
+            <div className="mt-2.5 flex items-center gap-2">
+              <select
+                value={shareTargetId}
+                onChange={(e) => { setShareTargetId(e.target.value); setShareSentName(null); }}
+                disabled={sharing}
+                className="flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50"
+              >
+                <option value="">기사님 선택</option>
+                {gimhaeEmployees.map((e) => (
+                  <option key={e.employeeId} value={e.employeeId}>{e.name}{e.title}</option>
+                ))}
+              </select>
+              <button
+                onClick={async () => {
+                  if (!shareTargetId) { setShareError("보낼 기사님을 선택해주세요."); return; }
+                  setShareError("");
+                  setSharing(true);
+                  try {
+                    const stopNames = result.recommendedOrder.map((o) => o.customerName);
+                    const sendResult = await shareOptimizedRoute(employee.employeeId, shareTargetId, stopNames);
+                    setShareSentName(sendResult.sentToName);
+                  } catch (err) {
+                    setShareError(err.message || "전송 중 오류가 발생했습니다.");
+                  } finally {
+                    setSharing(false);
+                  }
+                }}
+                disabled={sharing || !shareTargetId}
+                className="flex flex-shrink-0 items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+                style={{ backgroundColor: BRAND.deepGreen }}
+              >
+                <Send className="h-4 w-4" /> {sharing ? "전송중..." : "전송"}
+              </button>
+            </div>
+            {shareError && <p className="mt-2 text-xs font-semibold text-red-500">{shareError}</p>}
+            {shareSentName && (
+              <p className="mt-2 text-xs font-semibold" style={{ color: BRAND.deepGreen }}>
+                {shareSentName}님께 동선을 전송했습니다. (휴대폰 알림 권한이 꺼져있으면 푸시는 못 받아도, 인앱 알림 목록에는 남습니다.)
+              </p>
+            )}
+          </div>
         </div>
       )}
 
@@ -5033,7 +5098,9 @@ export default function GreenSyncApp() {
               {popupNotification.title}
             </p>
             <p className="mt-1.5 text-sm text-slate-600">{popupNotification.content}</p>
-            <p className="mt-1.5 text-[11px] text-slate-400">{popupNotification.site} · {popupNotification.actorName || "(미확인)"}</p>
+            <p className="mt-1.5 text-[11px] text-slate-400">
+              {popupNotification.site} · {popupNotification.actorName || "(미확인)"} · {formatNotificationTimestamp(popupNotification.timestamp)}
+            </p>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button onClick={() => setPopupNotification(null)} className="rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-600">
                 닫기
