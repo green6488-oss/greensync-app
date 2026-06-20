@@ -790,6 +790,7 @@ async function listGimhaeSchedule() {
     status: row.status,
     completedAt: row.completed_at,
     processedBy: row.processed_by,
+    workerEmployeeId: row.worker_employee_id,
     departedAt: row.departed_at,
     processedSite: row.processed_site,
     workerHomeSite: row.worker_home_site,
@@ -998,10 +999,23 @@ async function respondToRouteShare(actorEmployeeId, shareId, response, accept) {
 /** 김해 합짐 제안(관리자 전용) — 오늘 대기중인 일정을 거리 기준으로 묶어서 보여준다. */
 async function suggestGimhaeGrouping(actorEmployeeId) {
   const data = await callGasWebApp({ action: "suggestGimhaeGrouping", actor_employee_id: actorEmployeeId });
-  return (data.groups || []).map((g) => ({
-    stopCount: g.stop_count,
-    stops: g.stops.map((s) => ({ dispatchId: s.dispatch_id, customerId: s.customer_id, customerName: s.customer_name })),
-  }));
+  return {
+    groups: (data.groups || []).map((g) => ({
+      stopCount: g.stop_count,
+      stops: g.stops.map((s) => ({ dispatchId: s.dispatch_id, customerId: s.customer_id, customerName: s.customer_name })),
+    })),
+    // 46번 요청 — 이미 누군가 수락(납품중)한 거래처 근처에 대기중인 거래처가 있으면,
+    // 그 사람에게 개인화해서 추천해주는 묶음(누가 수락했는지/기준 거래처가 무엇인지 포함).
+    personalGroups: (data.personal_groups || []).map((g) => ({
+      workerEmployeeId: g.worker_employee_id,
+      workerName: g.worker_name,
+      anchorDispatchId: g.anchor_dispatch_id,
+      anchorCustomerId: g.anchor_customer_id,
+      anchorCustomerName: g.anchor_customer_name,
+      stopCount: g.stop_count,
+      stops: g.stops.map((s) => ({ dispatchId: s.dispatch_id, customerId: s.customer_id, customerName: s.customer_name })),
+    })),
+  };
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -3329,6 +3343,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
   const [result, setResult] = useState(null);
 
   const [groups, setGroups] = useState([]);
+  const [personalGroups, setPersonalGroups] = useState([]); // 46번 요청 — 이미 수락한 거래처 근처 개인화 추천
   const [groupsStatus, setGroupsStatus] = useState("loading");
 
   // 33번 요청 — "최적화된 동선을 기사 앱으로 전송"용 상태.
@@ -3338,16 +3353,24 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
   const [shareError, setShareError] = useState("");
   const [shareSentName, setShareSentName] = useState(null);
 
+  // 46번 요청 — 개인화 추천(합짐 제안) 카드별로 "OOO님께 보내기" 진행 상태.
+  const [personalSendingKey, setPersonalSendingKey] = useState(null);
+  const [personalSentKey, setPersonalSentKey] = useState(null);
+  const [personalSendError, setPersonalSendError] = useState("");
+
   const reload = async () => {
     setStatus("loading");
     try {
       const data = await listGimhaeSchedule();
-      // 이미 누군가 "수락"해서 "납품중"이 된 일정은 그 사람에게 배정된 것이므로
-      // 동선 최적화 화면에는 더 이상 노출하지 않는다. 그대로 두면(이전 버전처럼
-      // status !== "완료"로만 걸러내면) 다른 직원이 이미 배정된 거래처를 똑같이
-      // 선택해서 분석할 수 있는 문제가 있었다(46번 버그 — 정규열이 수락한
-      // LG전자 2공장이 최규헌 화면에도 계속 노출/선택되던 문제).
-      setSchedules(data.filter((s) => s.status === "대기"));
+      // 동선 최적화에 올라오는 후보는 "아직 아무도 수락하지 않은 대기 항목"과
+      // "내가 이미 수락한(납품중) 항목" 두 가지만 보여준다. 다른 사람이 이미
+      // 수락해서 배정받은 거래처까지 보이면 그걸 또 골라서 분석할 수 있는
+      // 문제가 있었다(46번 버그 — 정규열이 수락한 LG전자 2공장이 최규헌
+      // 화면에도 계속 노출/선택되던 문제). 내가 수락한 것도 같이 보여줘야
+      // "이미 수락한 곳 + 새로 추가한 곳"을 합쳐서 방문 순서를 분석할 수 있다.
+      setSchedules(
+        data.filter((s) => s.status === "대기" || (s.status === "납품중" && s.workerEmployeeId === employee.employeeId))
+      );
       setStatus("ready");
     } catch (err) {
       setError(err.message || "오늘일정을 불러오지 못했습니다.");
@@ -3359,7 +3382,8 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
     setGroupsStatus("loading");
     try {
       const data = await suggestGimhaeGrouping(employee.employeeId);
-      setGroups(data);
+      setGroups(data.groups);
+      setPersonalGroups(data.personalGroups);
       setGroupsStatus("ready");
     } catch (err) {
       setGroupsStatus("error");
@@ -3417,6 +3441,26 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
     setSelectedIds([]);
     setResult(null);
     setAnalyzeError("");
+  };
+
+  // 46번 요청 — 개인화 추천 카드의 "OOO님께 보내기": 이미 그 사람이 수락한
+  // 거래처 근처의 "대기" 거래처들을 그 사람에게 동선 추천으로 보낸다. 기존
+  // "추천 순서를 담당자 휴대폰으로 보내기"와 같은 전송 경로(shareOptimizedRoute)를
+  // 그대로 재사용한다 — 받는 사람은 평소처럼 화면 중앙 팝업에서 수락/거절하면 된다.
+  const handleSendPersonalGroup = async (group) => {
+    const key = group.anchorDispatchId;
+    setPersonalSendError("");
+    setPersonalSendingKey(key);
+    try {
+      const stopNames = group.stops.map((s) => s.customerName);
+      const customerIds = group.stops.map((s) => s.customerId);
+      await shareOptimizedRoute(employee.employeeId, group.workerEmployeeId, stopNames, customerIds);
+      setPersonalSentKey(key);
+    } catch (err) {
+      setPersonalSendError(err.message || "전송 중 오류가 발생했습니다.");
+    } finally {
+      setPersonalSendingKey(null);
+    }
   };
 
   // 날짜가 바뀌면(자정을 넘겨서도 화면이 켜져 있는 경우) 선택/분석 결과를
@@ -3630,7 +3674,55 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
         </div>
       )}
 
-      {/* 3) 합짐 제안 */}
+      {/* 3) 개인화 추천 — 이미 수락(납품중)한 거래처 근처에 대기중인 거래처가 있을 때 */}
+      {groupsStatus === "ready" && personalGroups.length > 0 && (
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-sm font-bold text-slate-900">이미 수락한 거래처 근처 추천</p>
+          <p className="mt-0.5 text-[11px] text-slate-400">
+            누군가 이미 수락해서 "납품중"인 거래처 근처에, 아직 대기중인 거래처가 있으면 같이 들렀다 가도록 추천합니다.
+          </p>
+          <div className="mt-3 space-y-2">
+            {personalGroups.map((group) => {
+              const key = group.anchorDispatchId;
+              const isMine = group.workerEmployeeId === employee.employeeId;
+              return (
+                <div key={key} className="rounded-xl border border-slate-100 p-3" style={{ backgroundColor: BRAND.greenSoft }}>
+                  <p className="text-[11px] font-bold" style={{ color: BRAND.deepGreen }}>
+                    {group.workerName || "담당자"}님이 수락한 "{group.anchorCustomerName}" 근처 · {group.stopCount}곳
+                  </p>
+                  <p className="mt-1 text-xs text-slate-700">{group.stops.map((s) => s.customerName).join(" · ")}</p>
+                  <div className="mt-2 flex items-center gap-3">
+                    {isMine ? (
+                      <button
+                        onClick={() => setSelectedIds([...new Set([group.anchorCustomerId, ...group.stops.map((s) => s.customerId)])])}
+                        className="text-[11px] font-bold"
+                        style={{ color: BRAND.deepGreen }}
+                      >
+                        내 동선에 추가해서 분석하기 →
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleSendPersonalGroup(group)}
+                        disabled={personalSendingKey === key}
+                        className="text-[11px] font-bold disabled:opacity-50"
+                        style={{ color: BRAND.deepGreen }}
+                      >
+                        {personalSendingKey === key ? "전송중..." : `${group.workerName || "담당자"}님께 보내기 →`}
+                      </button>
+                    )}
+                    {personalSentKey === key && (
+                      <span className="text-[11px] font-semibold text-emerald-600">전송 완료</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {personalSendError && <p className="mt-2 text-xs font-semibold text-red-500">{personalSendError}</p>}
+        </div>
+      )}
+
+      {/* 4) 합짐 제안 */}
       <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
         <p className="text-sm font-bold text-slate-900">합짐 제안</p>
         <p className="mt-0.5 text-[11px] text-slate-400">거리가 가까운 거래처들을 한 차량에 같이 실을 수 있도록 묶어서 제안합니다.</p>
@@ -3767,6 +3859,10 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
   const [acceptTargetId, setAcceptTargetId] = useState(null); // 수락 폼을 열어둔 대상 배차ID
   const [showRegisterForm, setShowRegisterForm] = useState(initialShowRegisterForm && isAdmin);
   const [completeNotice, setCompleteNotice] = useState(null); // 완료 시 자동 주행거리 반영 안내
+  // 46/47번 요청 — 여러 직원이 동시에 일정을 등록/수락하면 "납품중"·"완료" 목록이
+  // 금방 길어지므로, 본인이 수락한 것만 모아볼 수 있는 토글을 추가했다.
+  // "대기중"은 누구나 가져갈 수 있는 공용 풀이라 이 토글의 영향을 받지 않는다.
+  const [showMineOnly, setShowMineOnly] = useState(true);
 
   const reload = async () => {
     setStatus("loading");
@@ -3845,8 +3941,12 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
   };
 
   const waiting = schedules.filter((s) => s.status === "대기" || (s.status !== "완료" && s.status !== "납품중"));
-  const inDelivery = schedules.filter((s) => s.status === "납품중");
-  const completed = schedules.filter((s) => s.status === "완료");
+  const inDelivery = schedules
+    .filter((s) => s.status === "납품중")
+    .filter((s) => !showMineOnly || s.workerEmployeeId === employee.employeeId);
+  const completed = schedules
+    .filter((s) => s.status === "완료")
+    .filter((s) => !showMineOnly || s.workerEmployeeId === employee.employeeId);
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
@@ -3864,7 +3964,16 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
           </button>
         </div>
       </div>
-      <p className="mt-1 text-sm text-slate-400">일정 등록 → 대기중 → 수락 → 납품중 → 완료 순서로 진행됩니다.</p>
+      <div className="mt-2 flex items-center justify-between">
+        <p className="text-sm text-slate-400">일정 등록 → 대기중 → 수락 → 납품중 → 완료 순서로 진행됩니다.</p>
+        <button
+          onClick={() => setShowMineOnly((v) => !v)}
+          className="flex flex-shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold"
+          style={showMineOnly ? { backgroundColor: BRAND.greenSoft, color: BRAND.deepGreen } : { backgroundColor: "#f1f5f9", color: "#64748b" }}
+        >
+          <UserCircle2 className="h-3 w-3" /> {showMineOnly ? "내 담당만" : "전체 보기"}
+        </button>
+      </div>
 
       {showRegisterForm && (
         <GimhaeScheduleRegisterForm
