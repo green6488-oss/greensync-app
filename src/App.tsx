@@ -1,4 +1,8 @@
 import { useState, useEffect, useRef } from "react";
+// 푸시 알림(FCM)용 — 이 프로젝트의 Vite 환경에 `npm install firebase`를 먼저
+// 실행해야 한다(별도 안내 참고).
+import { initializeApp } from "firebase/app";
+import { getMessaging, getToken, isSupported as isFcmSupported } from "firebase/messaging";
 import {
   UserCircle2,
   Lock,
@@ -252,6 +256,74 @@ async function callGasWebApp(payload) {
     throw { errorCode: data.error_code, message: data.message, detail: data };
   }
   return data;
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// 푸시 알림(FCM) — 다른 앱을 쓰고 있거나 휴대폰이 잠겨있을 때도 OS 알림으로
+// 뜨는 "진짜" 푸시. 아래 값들은 Firebase 콘솔에서 발급받은 클라이언트용
+// 공개 설정값으로, 비밀값이 아니라 코드에 그대로 둬도 안전하다(서버 쪽에서
+// 실제로 발송 권한을 가지는 비공개 서비스 계정 키는 Code.gs의 Script
+// Properties에만 저장되고 이 클라이언트 코드에는 전혀 들어가지 않는다).
+// ────────────────────────────────────────────────────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyD9JRIurIbSGAnijOOKc1E1BlyLmZaW6Yk",
+  authDomain: "greensync-73654.firebaseapp.com",
+  projectId: "greensync-73654",
+  storageBucket: "greensync-73654.firebasestorage.app",
+  messagingSenderId: "538253928657",
+  appId: "1:538253928657:web:44d397813013eba718fdf0",
+};
+const FIREBASE_VAPID_KEY =
+  "BBCNGQYw3-r26s1CsjGRUACg5Y_is6J7iQhe-dSZZZ2Y_1TF7OwWDgwZ4qIMXRrDLO129sdX2BCcnOibcRZ3C2s";
+
+// initializeApp()을 두 번 호출하면 에러가 나기 때문에, 앱 전체에서 인스턴스를
+// 하나만 만들어 재사용한다.
+let firebaseAppInstance = null;
+function getFirebaseApp() {
+  if (!firebaseAppInstance) {
+    firebaseAppInstance = initializeApp(FIREBASE_CONFIG);
+  }
+  return firebaseAppInstance;
+}
+
+/** 발급받은 FCM 토큰을 서버에 등록(갱신) — "registerPushToken" 액션. */
+async function registerPushToken(actorEmployeeId, fcmToken) {
+  await callGasWebApp({
+    action: "registerPushToken",
+    actor_employee_id: actorEmployeeId,
+    fcm_token: fcmToken,
+  });
+}
+
+/**
+ * 로그인 직후 1회 호출 — 알림 권한을 요청하고, 허용되면 FCM 토큰을 발급받아
+ * 서버에 등록한다. 아래 모든 단계는 실패해도 조용히 넘어간다(권한 거부,
+ * 구버전 iOS Safari, 서비스워커 미지원 등) — 푸시는 "있으면 좋은" 부가
+ * 기능이라 실패해도 앱의 다른 기능을 막으면 안 된다.
+ */
+async function setupPushNotifications(employeeId) {
+  try {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return;
+
+    const supported = await isFcmSupported();
+    if (!supported) return;
+
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return;
+
+    const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    const messaging = getMessaging(getFirebaseApp());
+    const token = await getToken(messaging, {
+      vapidKey: FIREBASE_VAPID_KEY,
+      serviceWorkerRegistration: registration,
+    });
+
+    if (token) {
+      await registerPushToken(employeeId, token);
+    }
+  } catch (err) {
+    // 푸시 등록 실패는 조용히 무시 — 앱의 다른 기능에는 영향 없음.
+  }
 }
 
 /**
@@ -4756,6 +4828,15 @@ export default function GreenSyncApp() {
   const [popupNotification, setPopupNotification] = useState(null);
   const [siteSwitchToast, setSiteSwitchToast] = useState(null); // 근무지 전환 완료 안내(26번)
   const siteSwitchToastTimerRef = useRef(null);
+  const pushSetupDoneRef = useRef(false); // 같은 로그인 세션에서 푸시 설정을 두 번 시도하지 않도록
+
+  // 로그인 직후(home 화면 진입) 1회만 푸시 알림 권한 요청 + 토큰 등록을 시도한다.
+  useEffect(() => {
+    if (screen !== "home" || !employee) return;
+    if (pushSetupDoneRef.current) return;
+    pushSetupDoneRef.current = true;
+    setupPushNotifications(employee.employeeId);
+  }, [screen, employee]);
 
   // 24번 요청 — 앱을 켜놓고 사용하는 동안 새 알림이 생기면 화면 중앙에 팝업으로
   // 띄운다. 로그인 화면에서는 동작하지 않고, "home" 화면일 때만 일정 주기로
@@ -4886,6 +4967,7 @@ export default function GreenSyncApp() {
     setEmployee(null);
     setActiveSite(null);
     setScreen("login");
+    pushSetupDoneRef.current = false;
   };
 
   const handleSwitchSite = async (targetSite) => {
