@@ -448,7 +448,71 @@ async function listVehicles() {
     insuranceStart: row.insurance_start_date,
     insurancePeriodYears: row.insurance_period_years,
     insuranceExpiry: row.insurance_expiry_date,
+    fuelEfficiencyKmpl: row.fuel_efficiency_kmpl,
   }));
+}
+
+/** 차량 신규 등록(관리자 전용) — "registerVehicle" 액션. */
+async function registerVehicle(actorEmployeeId, body) {
+  const data = await callGasWebApp({
+    action: "registerVehicle",
+    actor_employee_id: actorEmployeeId,
+    vehicle_label: body.vehicleLabel,
+    ownership_type: body.ownershipType,
+    initial_mileage: body.initialMileage,
+    insurance_start_date: body.insuranceStartDate,
+    insurance_period_years: body.insurancePeriodYears,
+    fuel_efficiency_kmpl: body.fuelEfficiencyKmpl,
+  });
+  return { vehicleLabel: data.vehicle_label, currentMileage: data.current_mileage, insuranceExpiry: data.insurance_expiry_date };
+}
+
+/** 차량 보험/구분/연비 정보 수정(관리자 전용) — "updateVehicleInsurance" 액션. 주행거리는 이 액션으로 바꾸지 않음. */
+async function updateVehicleInsurance(actorEmployeeId, body) {
+  const data = await callGasWebApp({
+    action: "updateVehicleInsurance",
+    actor_employee_id: actorEmployeeId,
+    vehicle_label: body.vehicleLabel,
+    ownership_type: body.ownershipType,
+    insurance_start_date: body.insuranceStartDate,
+    insurance_period_years: body.insurancePeriodYears,
+    fuel_efficiency_kmpl: body.fuelEfficiencyKmpl,
+  });
+  return { insuranceExpiry: data.insurance_expiry_date };
+}
+
+/** 주행거리 등록 — "registerVehicleMileage" 액션. 등록한 거리만큼 현재 주행거리에 자동으로 누적된다. */
+async function registerVehicleMileage(actorEmployeeId, body) {
+  const data = await callGasWebApp({
+    action: "registerVehicleMileage",
+    actor_employee_id: actorEmployeeId,
+    vehicle_label: body.vehicleLabel,
+    distance_km: body.distanceKm,
+    note: body.note,
+  });
+  return { currentMileage: data.current_mileage, estimatedFuelCost: data.estimated_fuel_cost };
+}
+
+/** 유류비 관리 대시보드(관리자 전용) — "getFuelCostDashboard" 액션. yearMonth는 "yyyy-MM" 형식. */
+async function getFuelCostDashboard(actorEmployeeId, yearMonth) {
+  const data = await callGasWebApp({
+    action: "getFuelCostDashboard",
+    actor_employee_id: actorEmployeeId,
+    year_month: yearMonth,
+  });
+  return {
+    yearMonth: data.year_month,
+    vehicles: (data.vehicles || []).map((v) => ({
+      vehicleLabel: v.vehicle_label,
+      ownershipType: v.ownership_type,
+      fuelEfficiencyKmpl: v.fuel_efficiency_kmpl,
+      totalDistanceKm: v.total_distance_km,
+      totalFuelCost: v.total_fuel_cost,
+      logCount: v.log_count,
+    })),
+    totalDistanceKm: data.total_distance_km,
+    totalFuelCost: data.total_fuel_cost,
+  };
 }
 
 /** 거래처정보(김해) 목록 — "listGimhaeCustomers" 액션. 거래처ID 없는 행은 서버가 자동 발급. */
@@ -2056,6 +2120,14 @@ function ChangwonHome({ employee }) {
 // ────────────────────────────────────────────────────────────────────────
 // 공통 — 직원명부 조회 화면(관리자 전용). 창원/김해 양쪽 홈에서 진입 가능.
 // ────────────────────────────────────────────────────────────────────────
+// 직책 정렬 순서. 목록에 없는 직책("사원", 빈칸, 그 외 모든 값)은
+// 맨 마지막 한 그룹으로 취급해 같은 우선순위로 묶인다.
+const TITLE_ORDER = ["대표이사", "부사장", "감사", "상무", "실장", "부장", "차장", "과장", "계장", "대리"];
+function titleRank(title) {
+  const idx = TITLE_ORDER.indexOf(String(title || "").trim());
+  return idx === -1 ? TITLE_ORDER.length : idx;
+}
+
 function EmployeeListScreen({ employee, onBack }) {
   const [employees, setEmployees] = useState([]);
   const [query, setQuery] = useState("");
@@ -2076,12 +2148,14 @@ function EmployeeListScreen({ employee, onBack }) {
     return () => { cancelled = true; };
   }, [employee.employeeId]);
 
-  const filtered = employees.filter((e) => {
-    if (siteFilter !== "all" && e.homeSite !== siteFilter) return false;
-    if (!query.trim()) return true;
-    const q = query.trim().toLowerCase();
-    return String(e.name).toLowerCase().includes(q) || String(e.employeeId).toLowerCase().includes(q) || String(e.department || "").toLowerCase().includes(q);
-  });
+  const filtered = employees
+    .filter((e) => {
+      if (siteFilter !== "all" && e.homeSite !== siteFilter) return false;
+      if (!query.trim()) return true;
+      const q = query.trim().toLowerCase();
+      return String(e.name).toLowerCase().includes(q) || String(e.employeeId).toLowerCase().includes(q) || String(e.department || "").toLowerCase().includes(q);
+    })
+    .sort((a, b) => titleRank(a.title) - titleRank(b.title) || String(a.name).localeCompare(String(b.name), "ko"));
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
@@ -3178,25 +3252,32 @@ function GimhaeCustomerForm({ employee, mode, customer, onDone, onCancel }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// 김해 — 법인차량 화면.
+// 김해 — 차량관리 화면(법인차량(김해) 시트). 차량 등록/주행거리 등록/보험·연비
+// 수정을 모두 이 화면에서 처리한다. 주행거리는 직접 입력값을 덮어쓰지 않고
+// "거리 추가" 방식으로만 누적되도록 해 사고 입력으로 누적치가 어긋나는 걸 막는다.
 // ────────────────────────────────────────────────────────────────────────
-function GimhaeVehicleScreen({ onBack }) {
+function GimhaeVehicleScreen({ employee, onBack }) {
+  const isAdmin = employee.role === "관리자";
   const [vehicles, setVehicles] = useState([]);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [mileageTarget, setMileageTarget] = useState(null); // 주행거리 등록 중인 차량
+  const [editTarget, setEditTarget] = useState(null); // 보험/연비 수정 중인 차량
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await listVehicles();
-        if (!cancelled) { setVehicles(data); setStatus("ready"); }
-      } catch (err) {
-        if (!cancelled) { setError(err.message || "차량 목록을 불러오지 못했습니다."); setStatus("error"); }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  const reload = async () => {
+    setStatus("loading");
+    try {
+      const data = await listVehicles();
+      setVehicles(data);
+      setStatus("ready");
+    } catch (err) {
+      setError(err.message || "차량 목록을 불러오지 못했습니다.");
+      setStatus("error");
+    }
+  };
+
+  useEffect(() => { reload(); }, []);
 
   const isExpiringSoon = (dateStr) => {
     if (!dateStr) return false;
@@ -3209,8 +3290,23 @@ function GimhaeVehicleScreen({ onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">법인차량</h1>
-      <p className="mt-1 text-sm text-slate-400">차량 현황 및 보험 정보입니다.</p>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-slate-900">차량관리</h1>
+        {isAdmin && (
+          <button onClick={() => setShowAddForm((v) => !v)} className="flex items-center gap-1 text-xs font-bold" style={{ color: BRAND.deepGreen }}>
+            <PlusCircle className="h-3.5 w-3.5" /> 차량 등록
+          </button>
+        )}
+      </div>
+      <p className="mt-1 text-sm text-slate-400">법인·개인 차량 현황 및 보험 정보입니다.</p>
+
+      {showAddForm && (
+        <GimhaeVehicleRegisterForm
+          employee={employee}
+          onDone={async () => { setShowAddForm(false); await reload(); }}
+          onCancel={() => setShowAddForm(false)}
+        />
+      )}
 
       {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
       {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
@@ -3228,7 +3324,10 @@ function GimhaeVehicleScreen({ onBack }) {
                     {v.ownershipType || "구분 미입력"}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">현재 주행거리: {v.mileage ? `${v.mileage}km` : "미입력"}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  현재 주행거리: {v.mileage ? `${v.mileage}km` : "0km"}
+                  {v.fuelEfficiencyKmpl ? ` · 연비 ${v.fuelEfficiencyKmpl}km/L` : ""}
+                </p>
                 <p className="mt-1 text-[11px] text-slate-400">
                   보험 {v.insuranceStart || "-"} 시작 · {v.insurancePeriodYears ? `${v.insurancePeriodYears}년` : "-"} · 만료 {v.insuranceExpiry || "-"}
                 </p>
@@ -3237,10 +3336,349 @@ function GimhaeVehicleScreen({ onBack }) {
                     <AlertTriangle className="h-3 w-3" /> 보험 만료 30일 이내 — 갱신 필요
                   </p>
                 )}
+
+                <div className="mt-2.5 flex items-center gap-3">
+                  <button onClick={() => { setMileageTarget(mileageTarget === v.label ? null : v.label); setEditTarget(null); }} className="text-[11px] font-semibold" style={{ color: BRAND.deepGreen }}>
+                    주행거리 등록
+                  </button>
+                  {isAdmin && (
+                    <button onClick={() => { setEditTarget(editTarget === v.label ? null : v.label); setMileageTarget(null); }} className="text-[11px] font-semibold text-slate-400">
+                      보험·연비 수정
+                    </button>
+                  )}
+                </div>
+
+                {mileageTarget === v.label && (
+                  <VehicleMileageForm
+                    employee={employee}
+                    vehicle={v}
+                    onDone={async () => { setMileageTarget(null); await reload(); }}
+                    onCancel={() => setMileageTarget(null)}
+                  />
+                )}
+                {editTarget === v.label && (
+                  <VehicleInsuranceForm
+                    employee={employee}
+                    vehicle={v}
+                    onDone={async () => { setEditTarget(null); await reload(); }}
+                    onCancel={() => setEditTarget(null)}
+                  />
+                )}
               </div>
             );
           })}
         </div>
+      )}
+    </main>
+  );
+}
+
+/** 차량 신규 등록 폼(관리자 전용) — "+ 차량 등록" 버튼으로 토글된다. */
+function GimhaeVehicleRegisterForm({ employee, onDone, onCancel }) {
+  const [vehicleLabel, setVehicleLabel] = useState("");
+  const [ownershipType, setOwnershipType] = useState("법인");
+  const [initialMileage, setInitialMileage] = useState("");
+  const [insuranceStartDate, setInsuranceStartDate] = useState("");
+  const [insurancePeriodYears, setInsurancePeriodYears] = useState("");
+  const [fuelEfficiencyKmpl, setFuelEfficiencyKmpl] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!vehicleLabel.trim()) {
+      setError("차종(차량번호)을 입력해주세요. 예: 카니발(12가3456)");
+      return;
+    }
+    setError("");
+    setSubmitting(true);
+    try {
+      await registerVehicle(employee.employeeId, {
+        vehicleLabel: vehicleLabel.trim(),
+        ownershipType,
+        initialMileage: initialMileage ? Number(initialMileage) : 0,
+        insuranceStartDate,
+        insurancePeriodYears: insurancePeriodYears ? Number(insurancePeriodYears) : "",
+        fuelEfficiencyKmpl: fuelEfficiencyKmpl ? Number(fuelEfficiencyKmpl) : "",
+      });
+      onDone();
+    } catch (err) {
+      setError(err.message || "차량 등록 중 오류가 발생했습니다.");
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+      <div>
+        <label className="text-xs font-semibold text-slate-500">차종(차량번호) *</label>
+        <input value={vehicleLabel} onChange={(e) => setVehicleLabel(e.target.value)} placeholder="예: 카니발(12가3456)" disabled={submitting}
+          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-slate-500">구분</label>
+        <div className="mt-1.5 grid grid-cols-2 gap-2">
+          {["법인", "개인"].map((opt) => (
+            <button key={opt} type="button" onClick={() => setOwnershipType(opt)} disabled={submitting}
+              className={`rounded-lg py-2 text-xs font-bold ${ownershipType === opt ? "text-white" : "border border-slate-200 text-slate-500"}`}
+              style={ownershipType === opt ? { backgroundColor: BRAND.deepGreen } : {}}>
+              {opt}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-xs font-semibold text-slate-500">최초 주행거리(km)</label>
+          <input type="number" value={initialMileage} onChange={(e) => setInitialMileage(e.target.value)} placeholder="0" disabled={submitting}
+            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500">연비(km/L)</label>
+          <input type="number" step="0.1" value={fuelEfficiencyKmpl} onChange={(e) => setFuelEfficiencyKmpl(e.target.value)} placeholder="미입력 시 회사 평균값 적용" disabled={submitting}
+            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-xs font-semibold text-slate-500">보험 가입일</label>
+          <input type="date" value={insuranceStartDate} onChange={(e) => setInsuranceStartDate(e.target.value)} disabled={submitting}
+            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500">보험 기간(년)</label>
+          <input type="number" value={insurancePeriodYears} onChange={(e) => setInsurancePeriodYears(e.target.value)} placeholder="예: 1" disabled={submitting}
+            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+        </div>
+      </div>
+
+      {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
+
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={onCancel} disabled={submitting} className="rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-600 disabled:opacity-50">
+          취소
+        </button>
+        <button type="submit" disabled={submitting} className="rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+          {submitting ? "처리중..." : "차량 등록"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** 주행거리 등록 폼 — 입력한 거리만큼 현재 주행거리에 자동으로 더해(누적)지고, 예상 유류비가 함께 계산된다. */
+function VehicleMileageForm({ employee, vehicle, onDone, onCancel }) {
+  const [distanceKm, setDistanceKm] = useState("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState(null);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const km = Number(distanceKm);
+    if (!km || km <= 0) {
+      setError("0보다 큰 주행거리(km)를 입력해주세요.");
+      return;
+    }
+    setError("");
+    setSubmitting(true);
+    try {
+      const data = await registerVehicleMileage(employee.employeeId, { vehicleLabel: vehicle.label, distanceKm: km, note: note.trim() });
+      setResult(data);
+      setSubmitting(false);
+    } catch (err) {
+      setError(err.message || "주행거리 등록 중 오류가 발생했습니다.");
+      setSubmitting(false);
+    }
+  };
+
+  if (result) {
+    return (
+      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 text-xs">
+        <p className="font-bold" style={{ color: BRAND.deepGreen }}>등록 완료</p>
+        <p className="mt-1 text-slate-500">누적 주행거리: {result.currentMileage}km · 이번 거리 예상 유류비: {Number(result.estimatedFuelCost).toLocaleString()}원</p>
+        <button onClick={onDone} className="mt-2 font-bold underline text-slate-400">닫기</button>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+      <div>
+        <label className="text-xs font-semibold text-slate-500">이번에 이동한 거리(km) *</label>
+        <input type="number" step="0.1" value={distanceKm} onChange={(e) => setDistanceKm(e.target.value)} placeholder="예: 42.5" disabled={submitting}
+          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+        <p className="mt-1 text-[11px] text-slate-400">현재 누적 주행거리({vehicle.mileage || 0}km)에 이 거리만큼 더해집니다.</p>
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-slate-500">메모</label>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="선택 입력" disabled={submitting}
+          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+      </div>
+
+      {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
+
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={onCancel} disabled={submitting} className="rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-600 disabled:opacity-50">
+          취소
+        </button>
+        <button type="submit" disabled={submitting} className="rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+          {submitting ? "처리중..." : "주행거리 등록"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** 보험·연비·구분 수정 폼(관리자 전용) — 주행거리는 이 폼에서 바꿀 수 없다(VehicleMileageForm으로 분리). */
+function VehicleInsuranceForm({ employee, vehicle, onDone, onCancel }) {
+  const [ownershipType, setOwnershipType] = useState(vehicle.ownershipType || "법인");
+  const [insuranceStartDate, setInsuranceStartDate] = useState(vehicle.insuranceStart || "");
+  const [insurancePeriodYears, setInsurancePeriodYears] = useState(vehicle.insurancePeriodYears || "");
+  const [fuelEfficiencyKmpl, setFuelEfficiencyKmpl] = useState(vehicle.fuelEfficiencyKmpl || "");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSubmitting(true);
+    try {
+      await updateVehicleInsurance(employee.employeeId, {
+        vehicleLabel: vehicle.label,
+        ownershipType,
+        insuranceStartDate,
+        insurancePeriodYears: insurancePeriodYears ? Number(insurancePeriodYears) : "",
+        fuelEfficiencyKmpl: fuelEfficiencyKmpl ? Number(fuelEfficiencyKmpl) : "",
+      });
+      onDone();
+    } catch (err) {
+      setError(err.message || "차량 정보 수정 중 오류가 발생했습니다.");
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+      <div>
+        <label className="text-xs font-semibold text-slate-500">구분</label>
+        <div className="mt-1.5 grid grid-cols-2 gap-2">
+          {["법인", "개인"].map((opt) => (
+            <button key={opt} type="button" onClick={() => setOwnershipType(opt)} disabled={submitting}
+              className={`rounded-lg py-2 text-xs font-bold ${ownershipType === opt ? "text-white" : "border border-slate-200 text-slate-500"}`}
+              style={ownershipType === opt ? { backgroundColor: BRAND.deepGreen } : {}}>
+              {opt}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-xs font-semibold text-slate-500">보험 가입일</label>
+          <input type="date" value={insuranceStartDate} onChange={(e) => setInsuranceStartDate(e.target.value)} disabled={submitting}
+            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500">보험 기간(년)</label>
+          <input type="number" value={insurancePeriodYears} onChange={(e) => setInsurancePeriodYears(e.target.value)} disabled={submitting}
+            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+        </div>
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-slate-500">연비(km/L)</label>
+        <input type="number" step="0.1" value={fuelEfficiencyKmpl} onChange={(e) => setFuelEfficiencyKmpl(e.target.value)} placeholder="미입력 시 회사 평균값 적용" disabled={submitting}
+          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+      </div>
+
+      {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
+
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={onCancel} disabled={submitting} className="rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-600 disabled:opacity-50">
+          취소
+        </button>
+        <button type="submit" disabled={submitting} className="rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+          {submitting ? "처리중..." : "저장"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * 김해 — 유류비 관리 대시보드(관리자 전용). 월을 선택하면 그 달의 차량별
+ * 총 주행거리/예상유류비를 한 화면에 표로 보여준다. (4+6번 현장 요청 대응)
+ */
+function FuelCostDashboardScreen({ employee, onBack }) {
+  const defaultMonth = (() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  })();
+  const [yearMonth, setYearMonth] = useState(defaultMonth);
+  const [dashboard, setDashboard] = useState(null);
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState("");
+
+  const reload = async (month) => {
+    setStatus("loading");
+    try {
+      const data = await getFuelCostDashboard(employee.employeeId, month);
+      setDashboard(data);
+      setStatus("ready");
+    } catch (err) {
+      setError(err.message || "유류비 데이터를 불러오지 못했습니다.");
+      setStatus("error");
+    }
+  };
+
+  useEffect(() => { reload(yearMonth); }, []);
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <h1 className="text-xl font-bold text-slate-900">유류비 관리</h1>
+      <p className="mt-1 text-sm text-slate-400">월별 차량별 주행거리/예상 유류비 현황입니다(연비 등록 차량은 차량별 연비로, 미등록 차량은 회사 평균값으로 계산).</p>
+
+      <div className="mt-4 flex items-center gap-2">
+        <input type="month" value={yearMonth} onChange={(e) => setYearMonth(e.target.value)}
+          className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none" />
+        <button onClick={() => reload(yearMonth)} className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">
+          <RefreshCw className="h-3.5 w-3.5" /> 조회
+        </button>
+      </div>
+
+      {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
+      {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
+
+      {status === "ready" && dashboard && (
+        <>
+          <div className="mt-5 rounded-xl p-4 text-white" style={{ backgroundColor: BRAND.deepGreen }}>
+            <p className="text-xs opacity-80">{dashboard.yearMonth} 전체 합계</p>
+            <p className="mt-1 text-2xl font-bold">{Number(dashboard.totalFuelCost || 0).toLocaleString()}원</p>
+            <p className="mt-0.5 text-xs opacity-80">총 주행거리 {Number(dashboard.totalDistanceKm || 0).toLocaleString()}km</p>
+          </div>
+
+          <div className="mt-4 space-y-2">
+            {dashboard.vehicles.length === 0 && <p className="py-8 text-center text-xs text-slate-400">등록된 차량이 없습니다.</p>}
+            {dashboard.vehicles.map((v) => (
+              <div key={v.vehicleLabel} className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-slate-900">{v.vehicleLabel}</p>
+                  <span className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: v.ownershipType === "법인" ? BRAND.deepGreen : "#94a3b8" }}>
+                    {v.ownershipType || "구분 미입력"}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  주행거리 {Number(v.totalDistanceKm || 0).toLocaleString()}km · 등록 {v.logCount}건
+                  {v.fuelEfficiencyKmpl ? ` · 연비 ${v.fuelEfficiencyKmpl}km/L` : " · 연비 미등록(회사 평균값 적용)"}
+                </p>
+                <p className="mt-1.5 text-lg font-bold" style={{ color: BRAND.deepGreen }}>
+                  {Number(v.totalFuelCost || 0).toLocaleString()}원
+                </p>
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </main>
   );
@@ -3266,7 +3704,10 @@ function GimhaeHome({ employee }) {
     return <GimhaeCustomerScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
   if (activeScreen === "vehicles") {
-    return <GimhaeVehicleScreen onBack={() => setActiveScreen(null)} />;
+    return <GimhaeVehicleScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  }
+  if (activeScreen === "fuel_dashboard") {
+    return <FuelCostDashboardScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
   if (activeScreen === "employees") {
     return <EmployeeListScreen employee={employee} onBack={() => setActiveScreen(null)} />;
@@ -3277,7 +3718,8 @@ function GimhaeHome({ employee }) {
     { key: "schedule_register", icon: PlusCircle, label: "일정 등록", desc: "신규 납품/방문 일정 빠르게 등록", adminOnly: true },
     { key: "route_optimizer", icon: Route, label: "동선 최적화", desc: "합짐 제안 + 절감 효과(거리/시간/유류비)", adminOnly: true },
     { key: "customers", icon: Building2, label: "거래처정보", desc: "납품 거래처 목록 조회", adminOnly: false },
-    { key: "vehicles", icon: Truck, label: "법인차량", desc: "차량 현황 및 보험 정보", adminOnly: false },
+    { key: "vehicles", icon: Truck, label: "차량관리", desc: "법인·개인 차량 현황 및 보험 정보", adminOnly: false },
+    { key: "fuel_dashboard", icon: Fuel, label: "유류비 관리", desc: "월별 차량별 주행거리/유류비 현황", adminOnly: true },
     { key: "employees", icon: Users, label: "직원명부", desc: "전체 직원 조회", adminOnly: true },
   ];
 
@@ -3315,28 +3757,73 @@ function GimhaeHome({ employee }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────
+// 자동로그인 — 로그인 성공 시 employee/activeSite를 localStorage에 저장해두고,
+// 다음 접속(새로고침/앱 재실행) 시 그 값으로 곧바로 홈 화면을 띄운다.
+// 비밀번호는 저장하지 않으며, 로그아웃 시 즉시 삭제된다.
+// localStorage를 쓸 수 없는 환경(시크릿 모드 등)에서는 자동로그인만 동작하지
+// 않을 뿐 매번 로그인하는 기존 방식 그대로 정상 동작한다.
+// ────────────────────────────────────────────────────────────────────────
+const SESSION_STORAGE_KEY = "greensync_session_v1";
+
+function loadSavedSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.employee || !parsed.activeSite) return null;
+    return parsed;
+  } catch (err) {
+    return null;
+  }
+}
+
+function saveSession(employee, activeSite) {
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ employee, activeSite }));
+  } catch (err) {
+    // 저장 실패 시 조용히 무시 — 자동로그인만 안 될 뿐 앱 사용에는 영향 없음
+  }
+}
+
+function clearSession() {
+  try {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch (err) {
+    // no-op
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // 최상위 컴포넌트 — 로그인 → (필요시) 강제 비밀번호 변경 → 근무지별 화면 분기
 // ────────────────────────────────────────────────────────────────────────
 export default function GreenSyncApp() {
-  const [screen, setScreen] = useState("login"); // login | forcePasswordChange | home
-  const [employee, setEmployee] = useState(null);
+  const [screen, setScreen] = useState(() => (loadSavedSession() ? "home" : "login")); // login | forcePasswordChange | home
+  const [employee, setEmployee] = useState(() => loadSavedSession()?.employee || null);
   // 현재 화면에 보여줄 사이트. 로그인 시 employee.homeSite로 초기화되고,
   // "지원"/"관리자" 권한은 GlobalHeader의 전환 버튼으로 이 값만 바꿀 수 있다.
   // (실제 직원명부의 소속은 그대로 유지되며, 새로고침하면 homeSite로 복귀)
-  const [activeSite, setActiveSite] = useState(null);
+  const [activeSite, setActiveSite] = useState(() => loadSavedSession()?.activeSite || null);
   const [switchError, setSwitchError] = useState("");
 
   const handleLogin = (emp, mustChangePassword) => {
     setEmployee(emp);
     setActiveSite(emp.homeSite);
-    setScreen(mustChangePassword ? "forcePasswordChange" : "home");
+    if (mustChangePassword) {
+      setScreen("forcePasswordChange");
+    } else {
+      saveSession(emp, emp.homeSite);
+      setScreen("home");
+    }
   };
 
   const handlePasswordChanged = () => {
+    saveSession(employee, activeSite);
     setScreen("home");
   };
 
   const handleLogout = () => {
+    clearSession();
     setEmployee(null);
     setActiveSite(null);
     setScreen("login");
