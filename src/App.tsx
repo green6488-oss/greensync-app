@@ -345,6 +345,23 @@ async function listStockSummary() {
   }));
 }
 
+/** 월별 수불표(창원) — "getMonthlyLedger" 액션. yearMonth는 "yyyy-MM" 형식. */
+async function getMonthlyLedger(yearMonth) {
+  const data = await callGasWebApp({ action: "getMonthlyLedger", year_month: yearMonth });
+  return {
+    yearMonth: data.year_month,
+    items: (data.items || []).map((row) => ({
+      partNo: row.part_no,
+      name: row.name,
+      lc: row.lc,
+      openingStock: row.opening_stock,
+      inQty: row.in_qty,
+      outQty: row.out_qty,
+      closingStock: row.closing_stock,
+    })),
+  };
+}
+
 /** 특정 Part No. 입출고 이력 — "listTransactions" 액션. */
 async function listTransactions(filters = {}) {
   const data = await callGasWebApp({
@@ -578,6 +595,52 @@ async function listGimhaeSchedule() {
     completedLat: row.completed_lat,
     completedLng: row.completed_lng,
   }));
+}
+
+/**
+ * 납품경로 타임라인(관리자 전용) — "listGimhaeDeliveryHistory" 액션.
+ * 지정한 날짜에 완료된 일정을 처리기사별로 묶어, 완료시각 순서(=방문 순서)로 돌려준다.
+ */
+async function listGimhaeDeliveryHistory(actorEmployeeId, dateStr) {
+  const data = await callGasWebApp({
+    action: "listGimhaeDeliveryHistory",
+    actor_employee_id: actorEmployeeId,
+    date: dateStr,
+  });
+  return {
+    date: data.date,
+    drivers: (data.drivers || []).map((d) => ({
+      workerName: d.worker_name,
+      stopCount: d.stop_count,
+      stops: (d.stops || []).map((s) => ({
+        visitOrder: s.visit_order,
+        dispatchId: s.dispatch_id,
+        customerId: s.customer_id,
+        customerName: s.customer_name,
+        taskDescription: s.task_description,
+        departedAt: s.departed_at,
+        completedAt: s.completed_at,
+        deliveryAddress: s.delivery_address,
+        latitude: s.latitude,
+        longitude: s.longitude,
+      })),
+    })),
+  };
+}
+
+/**
+ * 완료된 정류지들(좌표가 있는 것만)을 순서대로 이어 Google 지도 길찾기 링크를 만든다.
+ * 카카오맵은 다중 경유지 "보기" 링크를 API 키 없이 지원하지 않아, 이 기능만
+ * Google 지도 링크를 사용한다(키 불필요, 새 탭에서 실제 경로/핀이 모두 표시됨).
+ * 좌표가 있는 정류지가 하나도 없으면 null을 돌려준다.
+ */
+function buildRouteMapUrl(stops) {
+  const coords = (stops || [])
+    .filter((s) => s.latitude != null && s.longitude != null && s.latitude !== "" && s.longitude !== "")
+    .map((s) => `${s.latitude},${s.longitude}`);
+  if (coords.length === 0) return null;
+  if (coords.length === 1) return `https://www.google.com/maps/search/?api=1&query=${coords[0]}`;
+  return `https://www.google.com/maps/dir/${coords.join("/")}`;
 }
 
 /**
@@ -1520,6 +1583,129 @@ function StockSummaryScreen({ onBack }) {
   );
 }
 
+/**
+ * 창원 — 월별 수불표. 월을 선택하면 PART NO별로
+ * "전월재고 + 입고 - 출고 = 당월재고" 형태의 표를 보여준다. (9번 요청 대응)
+ */
+function MonthlyLedgerScreen({ onBack }) {
+  const defaultMonth = (() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  })();
+  const [yearMonth, setYearMonth] = useState(defaultMonth);
+  const [query, setQuery] = useState("");
+  const [items, setItems] = useState([]);
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState("");
+
+  const reload = async (month) => {
+    setStatus("loading");
+    try {
+      const data = await getMonthlyLedger(month);
+      setItems(data.items);
+      setStatus("ready");
+    } catch (err) {
+      setError(err.message || "월별 수불표를 불러오지 못했습니다.");
+      setStatus("error");
+    }
+  };
+
+  useEffect(() => { reload(yearMonth); }, []);
+
+  const filtered = items.filter((it) => {
+    if (!query.trim()) return true;
+    const q = query.trim().toLowerCase();
+    return String(it.partNo).toLowerCase().includes(q) || String(it.name || "").toLowerCase().includes(q);
+  });
+
+  const totals = filtered.reduce(
+    (acc, it) => ({ inQty: acc.inQty + (Number(it.inQty) || 0), outQty: acc.outQty + (Number(it.outQty) || 0) }),
+    { inQty: 0, outQty: 0 }
+  );
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <h1 className="text-xl font-bold text-slate-900">월별 수불표</h1>
+      <p className="mt-1 text-sm text-slate-400">PART NO별 전월재고 + 입고 - 출고 = 당월재고 현황입니다.</p>
+
+      <div className="mt-4 flex items-center gap-2">
+        <input type="month" value={yearMonth} onChange={(e) => setYearMonth(e.target.value)}
+          className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none" />
+        <button onClick={() => reload(yearMonth)} className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">
+          <RefreshCw className="h-3.5 w-3.5" /> 조회
+        </button>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+        <Search className="h-4 w-4 text-slate-400" />
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="PART NO 또는 품명 검색"
+          className="w-full text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none" />
+      </div>
+
+      {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
+      {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
+
+      {status === "ready" && (
+        <>
+          <div className="mt-4 grid grid-cols-2 gap-2 text-center">
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <p className="text-[11px] text-slate-400">이번 달 입고 합계</p>
+              <p className="mt-1 text-lg font-extrabold" style={{ color: BRAND.deepGreen }}>{totals.inQty.toLocaleString()}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <p className="text-[11px] text-slate-400">이번 달 출고 합계</p>
+              <p className="mt-1 text-lg font-extrabold text-slate-700">{totals.outQty.toLocaleString()}</p>
+            </div>
+          </div>
+
+          <div className="mt-3 space-y-2">
+            {filtered.length === 0 && <p className="py-8 text-center text-xs text-slate-400">해당 월에 표시할 자재가 없습니다.</p>}
+            {filtered.map((it) => {
+              const closingNegative = Number(it.closingStock) < 0;
+              return (
+                <div key={it.partNo} className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">{it.name || "(품명 미등록)"}</p>
+                      <p className="text-xs text-slate-400">{it.partNo} {it.lc ? `· ${it.lc}` : ""}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-slate-400">당월재고</p>
+                      <p className={`text-lg font-extrabold ${closingNegative ? "text-red-500" : ""}`} style={!closingNegative ? { color: BRAND.deepGreen } : {}}>
+                        {it.closingStock}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-2 text-center">
+                    <div>
+                      <p className="text-[10px] text-slate-400">전월재고</p>
+                      <p className="text-xs font-bold text-slate-700">{it.openingStock}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-slate-400">입고</p>
+                      <p className="text-xs font-bold" style={{ color: BRAND.deepGreen }}>+{it.inQty}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-slate-400">출고</p>
+                      <p className="text-xs font-bold text-slate-700">-{it.outQty}</p>
+                    </div>
+                  </div>
+                  {closingNegative && (
+                    <p className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-red-500">
+                      <AlertTriangle className="h-3 w-3" /> 음수 재고 — 현장 확인 필요
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </main>
+  );
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // 공용 — 도면 위 핀 보드.
 //   mode="view"  : 좌표가 있으면 핀만 표시(읽기 전용). 위치찾기 화면에서 사용.
@@ -2058,6 +2244,9 @@ function ChangwonHome({ employee }) {
   if (activeScreen === "stock") {
     return <StockSummaryScreen onBack={() => setActiveScreen(null)} />;
   }
+  if (activeScreen === "monthly_ledger") {
+    return <MonthlyLedgerScreen onBack={() => setActiveScreen(null)} />;
+  }
   if (activeScreen === "location") {
     return <MaterialLocationScreen onBack={() => setActiveScreen(null)} />;
   }
@@ -2077,6 +2266,7 @@ function ChangwonHome({ employee }) {
   const menuCards = [
     { key: "transaction", icon: Package, label: "입출고 등록", desc: "PART NO 기준 입고/출고 처리", adminOnly: false },
     { key: "stock", icon: Truck, label: "재고조회", desc: "Part No.별 현재 재고 확인", adminOnly: false },
+    { key: "monthly_ledger", icon: Layers, label: "월별수불표", desc: "PART NO별 전월재고+입고-출고=당월재고", adminOnly: false },
     { key: "location", icon: MapPin, label: "위치찾기", desc: "도면 위 보관 위치 확인", adminOnly: false },
     { key: "templc", icon: AlertTriangle, label: "임시 L/C 재배치", desc: "임시 L/C 사용중 항목 확인", adminOnly: false },
     { key: "requesters", icon: ClipboardList, label: "요청자명부", desc: "LG전자 측 출고요청자 조회/등록", adminOnly: false },
@@ -3047,6 +3237,126 @@ function GimhaeScheduleRegisterForm({ employee, customers, onRegistered, onCance
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// 김해 — 납품경로 타임라인(관리자 전용, 7번 요청 대응). 날짜를 고르면 그날
+// 완료된 일정을 처리기사별로 묶어 방문 순서대로 보여주고, "전체 경로 지도에서
+// 보기"를 누르면 그 기사가 그날 방문한 거래처들을 순서대로 이은 지도가
+// 새 탭으로 열린다(Google 지도, API 키 불필요).
+// ────────────────────────────────────────────────────────────────────────
+function GimhaeDeliveryHistoryScreen({ employee, onBack }) {
+  const todayStr = (() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  })();
+  const [date, setDate] = useState(todayStr);
+  const [drivers, setDrivers] = useState([]);
+  const [expandedWorker, setExpandedWorker] = useState(null);
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState("");
+
+  const reload = async (targetDate) => {
+    setStatus("loading");
+    try {
+      const data = await listGimhaeDeliveryHistory(employee.employeeId, targetDate);
+      setDrivers(data.drivers);
+      setStatus("ready");
+    } catch (err) {
+      setError(err.message || "납품경로 기록을 불러오지 못했습니다.");
+      setStatus("error");
+    }
+  };
+
+  useEffect(() => { reload(date); }, []);
+
+  const formatTime = (iso) => {
+    if (!iso) return "-";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "-";
+    return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+  };
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <h1 className="text-xl font-bold text-slate-900">납품경로 타임라인</h1>
+      <p className="mt-1 text-sm text-slate-400">날짜를 선택하면 그날 기사별로 방문한 거래처 순서를 볼 수 있습니다.</p>
+
+      <div className="mt-4 flex items-center gap-2">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+          className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none" />
+        <button onClick={() => reload(date)} className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">
+          <RefreshCw className="h-3.5 w-3.5" /> 조회
+        </button>
+      </div>
+
+      {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
+      {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
+
+      {status === "ready" && (
+        <div className="mt-5 space-y-3">
+          {drivers.length === 0 && <p className="py-8 text-center text-xs text-slate-400">이 날짜에 완료된 납품 기록이 없습니다.</p>}
+          {drivers.map((d) => {
+            const expanded = expandedWorker === d.workerName;
+            const routeUrl = buildRouteMapUrl(d.stops);
+            const missingCoordCount = d.stops.filter((s) => s.latitude == null || s.longitude == null).length;
+            return (
+              <div key={d.workerName} className="rounded-xl border border-slate-200 bg-white p-4">
+                <button onClick={() => setExpandedWorker(expanded ? null : d.workerName)} className="flex w-full items-center justify-between text-left">
+                  <span>
+                    <p className="text-sm font-bold text-slate-900">{d.workerName}</p>
+                    <p className="text-xs text-slate-400">납품 {d.stopCount}건</p>
+                  </span>
+                  <Clock className="h-4 w-4 text-slate-300" />
+                </button>
+
+                {expanded && (
+                  <>
+                    <div className="mt-3 space-y-0">
+                      {d.stops.map((s, idx) => (
+                        <div key={s.dispatchId} className="flex gap-3">
+                          <div className="flex flex-col items-center">
+                            <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white" style={{ backgroundColor: BRAND.deepGreen }}>
+                              {s.visitOrder}
+                            </span>
+                            {idx < d.stops.length - 1 && <span className="mt-0.5 h-full w-px flex-1 bg-slate-200" />}
+                          </div>
+                          <div className="flex-1 pb-3">
+                            <p className="text-sm font-bold text-slate-900">{s.customerName}</p>
+                            <p className="text-xs text-slate-400">{s.deliveryAddress || "주소 미등록"}</p>
+                            <p className="mt-0.5 text-[11px] text-slate-400">
+                              출발 {formatTime(s.departedAt)} → 완료 {formatTime(s.completedAt)}
+                              {(s.latitude == null || s.longitude == null) && (
+                                <span className="ml-1 font-semibold text-amber-600">· 좌표 미등록</span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {routeUrl ? (
+                      <a href={routeUrl} target="_blank" rel="noopener noreferrer"
+                        className="mt-1 flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-xs font-bold text-white"
+                        style={{ backgroundColor: BRAND.deepGreen }}>
+                        <MapPin className="h-3.5 w-3.5" /> 전체 경로 지도에서 보기
+                      </a>
+                    ) : (
+                      <p className="mt-1 text-center text-[11px] text-slate-400">좌표가 등록된 거래처가 없어 지도를 표시할 수 없습니다.</p>
+                    )}
+                    {routeUrl && missingCoordCount > 0 && (
+                      <p className="mt-1.5 text-center text-[11px] text-amber-600">좌표가 없는 거래처 {missingCoordCount}곳은 지도 경로에서 제외됩니다.</p>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </main>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // 김해 — 거래처정보 화면. 거래처ID가 없는 행은 조회 시 서버가 자동 발급한다.
 // 관리자는 신규 거래처 등록 및 기존 거래처 주소 수정이 가능하며, 두 경우
 // 모두 서버가 저장 직전에 주소를 지오코딩해 위도/경도를 함께 기록한다
@@ -3700,6 +4010,9 @@ function GimhaeHome({ employee }) {
   if (activeScreen === "route_optimizer") {
     return <GimhaeRouteOptimizerScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
+  if (activeScreen === "delivery_history") {
+    return <GimhaeDeliveryHistoryScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  }
   if (activeScreen === "customers") {
     return <GimhaeCustomerScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
@@ -3717,6 +4030,7 @@ function GimhaeHome({ employee }) {
     { key: "schedule", icon: MapPin, label: "오늘일정", desc: "거래처 순회 납품 일정/완료처리", adminOnly: false },
     { key: "schedule_register", icon: PlusCircle, label: "일정 등록", desc: "신규 납품/방문 일정 빠르게 등록", adminOnly: true },
     { key: "route_optimizer", icon: Route, label: "동선 최적화", desc: "합짐 제안 + 절감 효과(거리/시간/유류비)", adminOnly: true },
+    { key: "delivery_history", icon: Clock, label: "납품경로 타임라인", desc: "날짜·기사별 방문 순서 + 지도로 보기", adminOnly: true },
     { key: "customers", icon: Building2, label: "거래처정보", desc: "납품 거래처 목록 조회", adminOnly: false },
     { key: "vehicles", icon: Truck, label: "차량관리", desc: "법인·개인 차량 현황 및 보험 정보", adminOnly: false },
     { key: "fuel_dashboard", icon: Fuel, label: "유류비 관리", desc: "월별 차량별 주행거리/유류비 현황", adminOnly: true },
