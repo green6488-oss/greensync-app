@@ -2514,7 +2514,7 @@ function ChangwonRequestScreen({ employee, onBack }) {
       <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">요청</h1>
       <p className="mt-1 text-sm text-slate-400">
-        예: "3층 담당자, 1층 지원 바람.", "1층 후문 업체 방문 하였음. 대응 바람" — 자유롭게 적어주시면 전체 알림에 빨간색으로 표시됩니다.
+        자유롭게 적어주시면 전체 알림에 빨간색으로 표시됩니다.
       </p>
 
       {done ? (
@@ -4689,6 +4689,8 @@ export default function GreenSyncApp() {
   const [switchError, setSwitchError] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
   const [popupNotification, setPopupNotification] = useState(null);
+  const [siteSwitchToast, setSiteSwitchToast] = useState(null); // 근무지 전환 완료 안내(26번)
+  const siteSwitchToastTimerRef = useRef(null);
 
   // 24번 요청 — 앱을 켜놓고 사용하는 동안 새 알림이 생기면 화면 중앙에 팝업으로
   // 띄운다. 로그인 화면에서는 동작하지 않고, "home" 화면일 때만 일정 주기로
@@ -4821,6 +4823,10 @@ export default function GreenSyncApp() {
     try {
       const result = await switchSite(employee.employeeId, targetSite);
       setActiveSite(result.activeSite);
+      const switchedLabel = SITES[result.activeSite]?.label || result.activeSite;
+      setSiteSwitchToast(`${switchedLabel}으로 전환되었습니다.`);
+      window.clearTimeout(siteSwitchToastTimerRef.current);
+      siteSwitchToastTimerRef.current = window.setTimeout(() => setSiteSwitchToast(null), 1800);
     } catch (err) {
       setSwitchError(err.message || "근무지 전환 중 오류가 발생했습니다.");
     }
@@ -4857,6 +4863,15 @@ export default function GreenSyncApp() {
             근무지 정보(home_site)를 확인할 수 없습니다. 관리자에게 문의해주세요.
           </p>
         </main>
+      )}
+
+      {siteSwitchToast && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-6" style={{ pointerEvents: "none" }}>
+          <div className="greensync-site-switch flex items-center gap-2 rounded-2xl px-5 py-4 text-sm font-bold text-white shadow-xl" style={{ backgroundColor: BRAND.deepGreen }}>
+            <ArrowLeftRight className="h-4 w-4 flex-shrink-0" />
+            {siteSwitchToast}
+          </div>
+        </div>
       )}
 
       {popupNotification && (
