@@ -787,11 +787,13 @@ async function createGimhaeSchedule(actorEmployeeId, body) {
  * "카카오 AI 추천 순서(Nearest Neighbor + 카카오 길찾기 API)"로 각각 계산해
  * 실제 도로 거리/시간/예상 유류비를 비교한다.
  */
-async function optimizeGimhaeRoute(actorEmployeeId, customerIds) {
+async function optimizeGimhaeRoute(actorEmployeeId, customerIds, origin) {
   const data = await callGasWebApp({
     action: "optimizeGimhaeRoute",
     actor_employee_id: actorEmployeeId,
     customer_ids: customerIds,
+    origin_lat: origin ? origin.lat : undefined,
+    origin_lng: origin ? origin.lng : undefined,
   });
   return {
     origin: data.origin,
@@ -3077,7 +3079,12 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
     setAnalyzing(true);
     setResult(null);
     try {
-      const data = await optimizeGimhaeRoute(employee.employeeId, selectedIds);
+      // 출발지는 항상 "현재 위치(GPS)"를 먼저 시도한다 — 실제로 김해공장이 아니라
+      // 직전 거래처 등 다른 곳에서 출발하는 경우가 많기 때문. GPS를 못 받으면(권한
+      // 거부, PC 환경 등) 서버가 자동으로 김해공장 주소를 출발지로 대체해 계산한다.
+      const position = await getCurrentPosition();
+      const origin = position.error ? null : { lat: position.lat, lng: position.lng };
+      const data = await optimizeGimhaeRoute(employee.employeeId, selectedIds, origin);
       setResult(data);
     } catch (err) {
       setAnalyzeError(err.message || "동선 분석 중 오류가 발생했습니다.");
@@ -3169,6 +3176,11 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
       {result && (
         <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
           <p className="text-sm font-bold text-slate-900">방문 순서 비교</p>
+          {result.origin?.name && (
+            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400">
+              <Crosshair className="h-3 w-3" /> 출발지: {result.origin.name}
+            </p>
+          )}
           <div className="mt-3 grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
               <p className="text-[11px] font-bold text-slate-500">최적화 전(선택한 순서)</p>
