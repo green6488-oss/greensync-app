@@ -113,6 +113,34 @@ function distanceInMeters(lat1, lng1, lat2, lng2) {
 }
 
 /**
+ * 한국 시간(Asia/Seoul) 기준 오늘 날짜를 "yyyy-MM-dd" 문자열로 돌려준다.
+ * 오늘일정/동선 최적화 화면이 자정을 넘겨서도 켜져 있을 때, 날짜가 바뀐 걸
+ * 감지해서 화면을 자동으로 초기화하는 데 쓴다(44/45번 요청).
+ */
+function getKstDateStr() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }); // "en-CA" → yyyy-MM-dd 형식
+}
+
+/**
+ * 화면이 켜져 있는 동안 한국 날짜가 바뀌는 순간을 감지하는 훅. 날짜가 바뀌면
+ * onDateChange 콜백을 호출한다(주로 목록 새로고침/선택 초기화 용도).
+ */
+function useKstDateChangeEffect(onDateChange) {
+  const todayRef = useRef(getKstDateStr());
+  useEffect(() => {
+    const checkDate = () => {
+      const nowStr = getKstDateStr();
+      if (nowStr !== todayRef.current) {
+        todayRef.current = nowStr;
+        onDateChange();
+      }
+    };
+    const intervalId = setInterval(checkDate, 60000);
+    return () => clearInterval(intervalId);
+  }, [onDateChange]);
+}
+
+/**
  * 브라우저 Geolocation API로 현재 위치를 가져온다. 권한 거부, 미지원 브라우저,
  * 타임아웃 등 어떤 이유로든 실패하면 reject 대신 { error } 형태로 resolve해서
  * 호출하는 쪽이 try/catch 없이도 안전하게 처리할 수 있게 한다.
@@ -773,6 +801,7 @@ async function listGimhaeSchedule() {
     completedLng: row.completed_lng,
     assignedVehicle: row.assigned_vehicle,
     assignedVehicleType: row.assigned_vehicle_type,
+    registeredAt: row.registered_at,
   }));
 }
 
@@ -3313,7 +3342,12 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
     setStatus("loading");
     try {
       const data = await listGimhaeSchedule();
-      setSchedules(data.filter((s) => s.status !== "완료"));
+      // 이미 누군가 "수락"해서 "납품중"이 된 일정은 그 사람에게 배정된 것이므로
+      // 동선 최적화 화면에는 더 이상 노출하지 않는다. 그대로 두면(이전 버전처럼
+      // status !== "완료"로만 걸러내면) 다른 직원이 이미 배정된 거래처를 똑같이
+      // 선택해서 분석할 수 있는 문제가 있었다(46번 버그 — 정규열이 수락한
+      // LG전자 2공장이 최규헌 화면에도 계속 노출/선택되던 문제).
+      setSchedules(data.filter((s) => s.status === "대기"));
       setStatus("ready");
     } catch (err) {
       setError(err.message || "오늘일정을 불러오지 못했습니다.");
@@ -3385,6 +3419,14 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
     setAnalyzeError("");
   };
 
+  // 날짜가 바뀌면(자정을 넘겨서도 화면이 켜져 있는 경우) 선택/분석 결과를
+  // 비우고 거래처 목록도 다시 불러온다 — 서버가 오늘 등록된 일정만 내려주므로
+  // 어제 항목은 자동으로 사라진다(45번 요청 — 날짜 바뀌면 초기화).
+  useKstDateChangeEffect(() => {
+    handleReset();
+    reload();
+  });
+
   const fmtKm = (m) => (m / 1000).toFixed(1) + "km";
   const fmtMin = (s) => Math.round(s / 60) + "분";
   const fmtWon = (w) => Math.round(w).toLocaleString() + "원";
@@ -3433,6 +3475,11 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
                   <span className="min-w-0 flex-1">
                     <p className="truncate text-sm font-bold text-slate-900">{item.customerName}</p>
                     <p className="truncate text-[11px] text-slate-400">{item.taskDescription}</p>
+                    <p className="truncate text-[11px] text-slate-400">
+                      {item.registeredAt
+                        ? `등록시간 ${new Date(item.registeredAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`
+                        : "등록시간 정보없음"}
+                    </p>
                   </span>
                   {checked && (
                     <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: BRAND.deepGreen }}>
@@ -3737,6 +3784,15 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
 
   useEffect(() => { reload(); }, []);
 
+  // 날짜가 바뀌면(자정을 넘겨서도 화면이 켜져 있는 경우) 오늘일정 목록을
+  // 자동으로 새로고침한다 — 서버가 오늘 등록된 일정만 내려주므로 그대로 다시
+  // 불러오면 어제 항목은 자동으로 사라진다(45번 요청 — 날짜 바뀌면 초기화).
+  useKstDateChangeEffect(() => {
+    setAcceptTargetId(null);
+    setShowRegisterForm(false);
+    reload();
+  });
+
   const findCustomerFor = (item) => customers.find((c) => c.customerId === item.customerId) || null;
 
   const handleAccept = async (item, acceptInfo) => {
@@ -3877,7 +3933,6 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
               {inDelivery.length === 0 && <p className="py-6 text-center text-xs text-slate-400">납품중인 일정이 없습니다.</p>}
               {inDelivery.map((item) => {
                 const busy = busyId === item.dispatchId;
-                const departed = !!item.departedAt;
                 return (
                   <div key={item.dispatchId} className="rounded-2xl border border-slate-200 bg-white p-4">
                     <div className="flex items-start justify-between">
@@ -3888,10 +3943,15 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">{item.dispatchId}</span>
                     </div>
 
+                {(() => {
+                  const registeredLabel = item.registeredAt
+                    ? `등록시간 ${new Date(item.registeredAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`
+                    : "등록시간 정보없음";
+                  return (
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
-                        {departed ? `출발 ${new Date(item.departedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}` : "아직 출발 전"}
+                        {registeredLabel}
                       </span>
                       <span className="font-semibold" style={{ color: BRAND.deepGreen }}>담당: {item.processedBy || "-"}</span>
                       {item.assignedVehicle && (
@@ -3900,6 +3960,8 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                         </span>
                       )}
                     </div>
+                  );
+                })()}
 
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <button
