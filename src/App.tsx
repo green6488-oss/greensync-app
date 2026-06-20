@@ -36,6 +36,7 @@ import {
   Send,
   Bell,
   Megaphone,
+  Phone,
 } from "lucide-react";
 
 // ────────────────────────────────────────────────────────────────────────
@@ -571,6 +572,11 @@ async function registerFuelPurchase(actorEmployeeId, body) {
 // 알림(통합) / 마산 요청 / 김해 업체 긴급요청 — 16·17·18번 요청 대응.
 // ────────────────────────────────────────────────────────────────────────
 
+/** 마산 요청/김해 업체 긴급요청처럼 빨간색으로 강조해야 하는 알림 분류인지 판정. */
+function isUrgentNotificationCategory(category) {
+  return category === "changwon_request" || category === "gimhae_urgent_request";
+}
+
 /** 알림 목록(누구나) — "listNotifications" 액션. 최신순 최대 200건. */
 async function listNotifications() {
   const data = await callGasWebApp({ action: "listNotifications" });
@@ -1049,7 +1055,7 @@ function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout, onOpenNoti
           {canSwitchSite && (
             <button
               onClick={() => onSwitchSite(activeSite === "changwon" ? "gimhae" : "changwon")}
-              className="flex flex-shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 active:bg-slate-50"
+              className="flex flex-shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 transition-transform active:scale-95 active:bg-slate-50"
               title="지원/관리자 권한으로 근무지를 전환할 수 있습니다"
             >
               <ArrowLeftRight className="h-3 w-3 flex-shrink-0" />
@@ -1142,7 +1148,7 @@ function NotificationScreen({ employee, onBack }) {
     }
   };
 
-  const isUrgentCategory = (category) => category === "changwon_request" || category === "gimhae_urgent_request";
+  const isUrgentCategory = isUrgentNotificationCategory;
 
   const formatTimestamp = (iso) => {
     const d = new Date(iso);
@@ -1906,8 +1912,8 @@ function MonthlyLedgerScreen({ onBack }) {
                 <div key={it.partNo} className="rounded-xl border border-slate-200 bg-white p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-bold text-slate-900">{it.name || "(품명 미등록)"}</p>
-                      <p className="text-xs text-slate-400">{it.partNo} {it.lc ? `· ${it.lc}` : ""}</p>
+                      <p className="text-sm font-bold text-slate-900">{it.partNo}{it.lc ? ` · ${it.lc}` : ""}</p>
+                      <p className="text-xs text-slate-400">{it.name || "(품명 미등록)"}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-[10px] text-slate-400">당월재고</p>
@@ -2698,7 +2704,14 @@ function EmployeeListScreen({ employee, onBack }) {
                 </span>
               </div>
               <p className="mt-1 text-xs text-slate-500">{e.employeeId} · {SITES[e.homeSite]?.label || e.homeSite} · {e.department}</p>
-              <p className="mt-1 text-[11px] text-slate-400">{e.contact || "연락처 미입력"} {e.email ? `· ${e.email}` : ""}</p>
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <p className="text-[11px] text-slate-400">{e.contact || "연락처 미입력"} {e.email ? `· ${e.email}` : ""}</p>
+                {e.contact && (
+                  <a href={`tel:${e.contact}`} className="flex flex-shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold text-white" style={{ backgroundColor: BRAND.deepGreen }}>
+                    <Phone className="h-3 w-3" /> 전화
+                  </a>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -4627,6 +4640,31 @@ function clearSession() {
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// 24번 요청 — 앱을 사용 중일 때(포그라운드) 새 알림이 생기면 화면 중앙에 팝업으로
+// 띄워준다. "마지막으로 확인한 알림 시각"을 기기에 저장해두고, 그보다 최신인
+// 알림이 보이면 한 번만 팝업으로 알려준다.
+// (다른 앱을 쓰고 있을 때도 휴대폰 상단에 뜨는 OS 알림은 별도의 푸시 인프라
+// — 서비스워커, VAPID 키, 구독 저장, Web Push 프로토콜 서버 구현 — 가
+// 필요해서 이번 범위에는 포함하지 않았다. 아래 안내 메시지 참고.)
+const NOTIF_LAST_SEEN_KEY = "greensync_last_notif_seen_v1";
+
+function getLastSeenNotifTimestamp() {
+  try {
+    return localStorage.getItem(NOTIF_LAST_SEEN_KEY) || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function setLastSeenNotifTimestamp(iso) {
+  try {
+    localStorage.setItem(NOTIF_LAST_SEEN_KEY, iso);
+  } catch (err) {
+    // no-op
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // 최상위 컴포넌트 — 로그인 → (필요시) 강제 비밀번호 변경 → 근무지별 화면 분기
 // ────────────────────────────────────────────────────────────────────────
 export default function GreenSyncApp() {
@@ -4638,6 +4676,45 @@ export default function GreenSyncApp() {
   const [activeSite, setActiveSite] = useState(() => loadSavedSession()?.activeSite || null);
   const [switchError, setSwitchError] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
+  const [popupNotification, setPopupNotification] = useState(null);
+
+  // 24번 요청 — 앱을 켜놓고 사용하는 동안 새 알림이 생기면 화면 중앙에 팝업으로
+  // 띄운다. 로그인 화면에서는 동작하지 않고, "home" 화면일 때만 일정 주기로
+  // 새 알림이 있는지 확인한다.
+  useEffect(() => {
+    if (screen !== "home") return;
+    let cancelled = false;
+
+    // 기준 시각이 아예 없으면(최초 실행) "지금"으로 잡아서, 과거 알림이
+    // 한꺼번에 쏟아지듯 팝업으로 뜨지 않게 한다.
+    if (!getLastSeenNotifTimestamp()) {
+      setLastSeenNotifTimestamp(new Date().toISOString());
+    }
+
+    const checkForNewNotifications = async () => {
+      try {
+        const list = await listNotifications();
+        if (cancelled || list.length === 0) return;
+        const lastSeen = getLastSeenNotifTimestamp();
+        const lastSeenTime = lastSeen ? new Date(lastSeen).getTime() : 0;
+        const newest = list[0]; // 서버가 항상 최신순으로 내려준다.
+        if (new Date(newest.timestamp).getTime() > lastSeenTime) {
+          setPopupNotification(newest);
+          setLastSeenNotifTimestamp(newest.timestamp);
+        }
+      } catch (err) {
+        // 알림 확인 실패는 조용히 무시한다(메인 화면 사용에 영향 주지 않음).
+      }
+    };
+
+    const intervalId = setInterval(checkForNewNotifications, 45000);
+    const firstCheckTimer = setTimeout(checkForNewNotifications, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      clearTimeout(firstCheckTimer);
+    };
+  }, [screen]);
 
   // 화면을 위로 당겼을 때 생기는 "고무줄(바운스) 스크롤"을 막는다. iOS에서 이 바운스가
   // 일어나는 동안 화면 맨 위쪽(와이파이/시간 표시 영역)이 같이 밀려 내려와 그 위에 있는
@@ -4648,6 +4725,14 @@ export default function GreenSyncApp() {
     styleEl.textContent = `
       html, body { overscroll-behavior-y: none; height: 100%; }
       #root { min-height: 100%; }
+
+      @keyframes greensync-site-switch {
+        0% { opacity: 0; transform: translateX(14px) scale(0.99); }
+        100% { opacity: 1; transform: translateX(0) scale(1); }
+      }
+      .greensync-site-switch {
+        animation: greensync-site-switch 0.28s ease-out;
+      }
     `;
     document.head.appendChild(styleEl);
     return () => { document.head.removeChild(styleEl); };
@@ -4747,15 +4832,43 @@ export default function GreenSyncApp() {
       {showNotifications ? (
         <NotificationScreen employee={employee} onBack={() => setShowNotifications(false)} />
       ) : activeSite === "changwon" ? (
-        <ChangwonHome employee={employee} />
+        <div key="changwon" className="greensync-site-switch">
+          <ChangwonHome employee={employee} />
+        </div>
       ) : activeSite === "gimhae" ? (
-        <GimhaeHome employee={employee} />
+        <div key="gimhae" className="greensync-site-switch">
+          <GimhaeHome employee={employee} />
+        </div>
       ) : (
         <main className="mx-auto max-w-md px-6 py-16 text-center">
           <p className="text-sm font-semibold text-red-500">
             근무지 정보(home_site)를 확인할 수 없습니다. 관리자에게 문의해주세요.
           </p>
         </main>
+      )}
+
+      {popupNotification && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6">
+          <div className={`w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl ${isUrgentNotificationCategory(popupNotification.category) ? "border-2 border-red-300" : ""}`}>
+            <p className={`text-sm font-bold ${isUrgentNotificationCategory(popupNotification.category) ? "text-red-600" : "text-slate-900"}`}>
+              {popupNotification.title}
+            </p>
+            <p className="mt-1.5 text-sm text-slate-600">{popupNotification.content}</p>
+            <p className="mt-1.5 text-[11px] text-slate-400">{popupNotification.site} · {popupNotification.actorName || "(미확인)"}</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button onClick={() => setPopupNotification(null)} className="rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-600">
+                닫기
+              </button>
+              <button
+                onClick={() => { setPopupNotification(null); setShowNotifications(true); }}
+                className="rounded-lg py-2.5 text-xs font-bold text-white"
+                style={{ backgroundColor: BRAND.deepGreen }}
+              >
+                보기
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
