@@ -29,6 +29,11 @@ import {
   Image as ImageIcon,
   Crosshair,
   Loader2,
+  Route,
+  Fuel,
+  Layers,
+  TrendingDown,
+  Send,
 } from "lucide-react";
 
 // ────────────────────────────────────────────────────────────────────────
@@ -562,6 +567,43 @@ async function createGimhaeSchedule(actorEmployeeId, body) {
     task_description: body.taskDescription,
   });
   return { dispatchId: data.dispatch_id, status: data.status };
+}
+
+/**
+ * 김해 동선 최적화(관리자 전용) — 선택한 거래처ID들을 "선택한 순서 그대로"와
+ * "카카오 AI 추천 순서(Nearest Neighbor + 카카오 길찾기 API)"로 각각 계산해
+ * 실제 도로 거리/시간/예상 유류비를 비교한다.
+ */
+async function optimizeGimhaeRoute(actorEmployeeId, customerIds) {
+  const data = await callGasWebApp({
+    action: "optimizeGimhaeRoute",
+    actor_employee_id: actorEmployeeId,
+    customer_ids: customerIds,
+  });
+  return {
+    origin: data.origin,
+    originalOrder: (data.original_order || []).map((o) => ({ customerId: o.customer_id, customerName: o.customer_name })),
+    recommendedOrder: (data.recommended_order || []).map((o) => ({ customerId: o.customer_id, customerName: o.customer_name })),
+    originalRoute: data.original_route
+      ? { distanceM: data.original_route.distance_m, durationS: data.original_route.duration_s, fuelCostWon: data.original_route.fuel_cost_won }
+      : null,
+    recommendedRoute: data.recommended_route
+      ? { distanceM: data.recommended_route.distance_m, durationS: data.recommended_route.duration_s, fuelCostWon: data.recommended_route.fuel_cost_won }
+      : null,
+    saved: data.saved
+      ? { distanceM: data.saved.distance_m, durationS: data.saved.duration_s, fuelCostWon: data.saved.fuel_cost_won, distancePercent: data.saved.distance_percent }
+      : null,
+    skippedCustomers: (data.skipped_customers || []).map((s) => ({ customerId: s.customer_id, customerName: s.customer_name })),
+  };
+}
+
+/** 김해 합짐 제안(관리자 전용) — 오늘 대기중인 일정을 거리 기준으로 묶어서 보여준다. */
+async function suggestGimhaeGrouping(actorEmployeeId) {
+  const data = await callGasWebApp({ action: "suggestGimhaeGrouping", actor_employee_id: actorEmployeeId });
+  return (data.groups || []).map((g) => ({
+    stopCount: g.stop_count,
+    stops: g.stops.map((s) => ({ dispatchId: s.dispatch_id, customerId: s.customer_id, customerName: s.customer_name })),
+  }));
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -2371,6 +2413,275 @@ function CompletionReportModal({ item, customer, onClose, onSubmit }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// 김해 — 스마트 동선 최적화 (9차 업데이트, 관리자 전용).
+//   1) 오늘 대기중인 거래처를 체크박스로 선택(=합짐 제안과 동일한 "같은
+//      차량에 실을 거래처 조합" 개념)
+//   2) "최적 동선 분석하기" → 선택한 순서(원래 체크 순서) vs 카카오 AI
+//      추천 순서(Nearest Neighbor + 카카오 모빌리티 길찾기 API)를 비교
+//   3) 절감된 거리/시간/예상 유류비를 보여주고, "기사 앱으로 전송"(=오늘일정
+//      목록의 표시 순서에 별도로 적용하는 건 다음 단계 과제이며, 지금은
+//      추천 순서를 사용자가 직접 참고해 진행하는 형태)
+// 합짐 제안(가까운 거래처 묶음)도 같은 화면에서 함께 보여준다 — 둘 다 같은
+// 거리 데이터를 기반으로 하는 한 묶음의 기능이기 때문이다.
+// ────────────────────────────────────────────────────────────────────────
+function GimhaeRouteOptimizerScreen({ employee, onBack }) {
+  const [schedules, setSchedules] = useState([]);
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState("");
+  const [selectedIds, setSelectedIds] = useState([]); // 체크된 순서를 그대로 유지(=선택한 순서)
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState("");
+  const [result, setResult] = useState(null);
+
+  const [groups, setGroups] = useState([]);
+  const [groupsStatus, setGroupsStatus] = useState("loading");
+
+  const reload = async () => {
+    setStatus("loading");
+    try {
+      const data = await listGimhaeSchedule();
+      setSchedules(data.filter((s) => s.status !== "완료"));
+      setStatus("ready");
+    } catch (err) {
+      setError(err.message || "오늘일정을 불러오지 못했습니다.");
+      setStatus("error");
+    }
+  };
+
+  const loadGroups = async () => {
+    setGroupsStatus("loading");
+    try {
+      const data = await suggestGimhaeGrouping(employee.employeeId);
+      setGroups(data);
+      setGroupsStatus("ready");
+    } catch (err) {
+      setGroupsStatus("error");
+    }
+  };
+
+  useEffect(() => {
+    reload();
+    loadGroups();
+  }, []);
+
+  const toggleSelect = (customerId) => {
+    setSelectedIds((prev) =>
+      prev.includes(customerId) ? prev.filter((id) => id !== customerId) : [...prev, customerId]
+    );
+    setResult(null);
+  };
+
+  const handleAnalyze = async () => {
+    if (selectedIds.length < 2) {
+      setAnalyzeError("거래처를 2곳 이상 선택해주세요.");
+      return;
+    }
+    setAnalyzeError("");
+    setAnalyzing(true);
+    setResult(null);
+    try {
+      const data = await optimizeGimhaeRoute(employee.employeeId, selectedIds);
+      setResult(data);
+    } catch (err) {
+      setAnalyzeError(err.message || "동선 분석 중 오류가 발생했습니다.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleReset = () => {
+    setSelectedIds([]);
+    setResult(null);
+    setAnalyzeError("");
+  };
+
+  const fmtKm = (m) => (m / 1000).toFixed(1) + "km";
+  const fmtMin = (s) => Math.round(s / 60) + "분";
+  const fmtWon = (w) => Math.round(w).toLocaleString() + "원";
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <div className="flex items-center justify-between">
+        <h1 className="flex items-center gap-1.5 text-xl font-bold text-slate-900">
+          <Route className="h-5 w-5" style={{ color: BRAND.deepGreen }} /> 김해공장 스마트 동선 최적화
+        </h1>
+        <button onClick={handleReset} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
+          <RefreshCw className="h-3.5 w-3.5" /> 초기화
+        </button>
+      </div>
+      <p className="mt-1 text-sm text-slate-400">그린산업(주) · 순회 납품 동선, 카카오모빌리티 경유지 최적화 연동</p>
+
+      {/* 1) 거래처 선택 */}
+      <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+        <p className="flex items-center gap-1.5 text-sm font-bold text-slate-900">
+          <Layers className="h-4 w-4" /> 김해공장 순회 납품 동선
+        </p>
+        <p className="mt-0.5 text-[11px] text-slate-400">차량과 방문할 거래처를 선택하세요(체크 순서 = 현재 계획)</p>
+
+        {status === "loading" && <p className="mt-4 text-center text-xs text-slate-400">불러오는 중...</p>}
+        {status === "error" && <p className="mt-4 text-center text-xs font-semibold text-red-500">{error}</p>}
+
+        {status === "ready" && (
+          <div className="mt-3 space-y-2">
+            {schedules.length === 0 && <p className="py-6 text-center text-xs text-slate-400">대기중인 일정이 없습니다.</p>}
+            {schedules.map((item) => {
+              const checked = selectedIds.includes(item.customerId);
+              const order = selectedIds.indexOf(item.customerId);
+              return (
+                <button
+                  key={item.dispatchId}
+                  onClick={() => toggleSelect(item.customerId)}
+                  className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 text-left active:bg-slate-50"
+                >
+                  <span
+                    className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border-2"
+                    style={checked ? { backgroundColor: BRAND.deepGreen, borderColor: BRAND.deepGreen } : { borderColor: "#cbd5e1" }}
+                  >
+                    {checked && <CheckCircle2 className="h-3.5 w-3.5 text-white" />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold text-slate-900">{item.customerName}</p>
+                    <p className="truncate text-[11px] text-slate-400">{item.taskDescription}</p>
+                  </span>
+                  {checked && (
+                    <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: BRAND.deepGreen }}>
+                      {order + 1}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {analyzeError && <p className="mt-3 text-xs font-semibold text-red-500">{analyzeError}</p>}
+
+        <button
+          onClick={handleAnalyze}
+          disabled={analyzing || selectedIds.length < 2}
+          className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-white disabled:opacity-40"
+          style={{ backgroundColor: BRAND.deepGreen }}
+        >
+          {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Route className="h-4 w-4" />}
+          최적 동선 분석하기 ({selectedIds.length}곳)
+        </button>
+      </div>
+
+      {/* 2) 방문 순서 비교 + 절감 효과 */}
+      {result && (
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-sm font-bold text-slate-900">방문 순서 비교</p>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+              <p className="text-[11px] font-bold text-slate-500">최적화 전(선택한 순서)</p>
+              <ol className="mt-2 space-y-1.5">
+                {result.originalOrder.map((o, idx) => (
+                  <li key={o.customerId} className="flex items-center gap-1.5 text-xs text-slate-600">
+                    <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-slate-300 text-[9px] font-bold text-white">{idx + 1}</span>
+                    <span className="truncate">{o.customerName}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <div className="rounded-xl p-3" style={{ backgroundColor: BRAND.greenSoft }}>
+              <p className="flex items-center gap-1 text-[11px] font-bold" style={{ color: BRAND.deepGreen }}>
+                <TrendingDown className="h-3 w-3" /> 카카오 AI 추천 순서
+              </p>
+              <ol className="mt-2 space-y-1.5">
+                {result.recommendedOrder.map((o, idx) => (
+                  <li key={o.customerId} className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                    <span className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white" style={{ backgroundColor: BRAND.deepGreen }}>{idx + 1}</span>
+                    <span className="truncate">{o.customerName}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </div>
+
+          {result.saved && (
+            <div className="mt-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-slate-900">최적화 절감 효과</p>
+                {result.saved.distancePercent > 0 && (
+                  <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-600">
+                    <TrendingDown className="h-3 w-3" /> 거리 {result.saved.distancePercent}% 절감
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                <div className="rounded-lg border border-slate-100 p-2.5 text-center">
+                  <p className="text-[10px] text-slate-400">이동 거리</p>
+                  <p className="text-[10px] text-slate-300 line-through">{fmtKm(result.originalRoute.distanceM)}</p>
+                  <p className="text-sm font-extrabold text-slate-900">{fmtKm(result.recommendedRoute.distanceM)}</p>
+                  <p className="text-[10px] font-semibold text-emerald-600">-{fmtKm(result.saved.distanceM)}</p>
+                </div>
+                <div className="rounded-lg border border-slate-100 p-2.5 text-center">
+                  <p className="text-[10px] text-slate-400">이동 시간</p>
+                  <p className="text-[10px] text-slate-300 line-through">{fmtMin(result.originalRoute.durationS)}</p>
+                  <p className="text-sm font-extrabold text-slate-900">{fmtMin(result.recommendedRoute.durationS)}</p>
+                  <p className="text-[10px] font-semibold text-emerald-600">-{fmtMin(result.saved.durationS)}</p>
+                </div>
+                <div className="rounded-lg border border-slate-100 p-2.5 text-center">
+                  <p className="flex items-center justify-center gap-0.5 text-[10px] text-slate-400"><Fuel className="h-2.5 w-2.5" /> 예상 유류비</p>
+                  <p className="text-[10px] text-slate-300 line-through">{fmtWon(result.originalRoute.fuelCostWon)}</p>
+                  <p className="text-sm font-extrabold text-slate-900">{fmtWon(result.recommendedRoute.fuelCostWon)}</p>
+                  <p className="text-[10px] font-semibold text-emerald-600">-{fmtWon(result.saved.fuelCostWon)}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {result.skippedCustomers && result.skippedCustomers.length > 0 && (
+            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+              좌표가 없어 분석에서 제외된 거래처: {result.skippedCustomers.map((c) => c.customerName).join(", ")}
+            </p>
+          )}
+
+          <button
+            disabled
+            title="다음 단계 과제 — 추천 순서를 오늘일정 표시 순서/기사 앱에 자동 반영하는 기능은 아직 준비중입니다"
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white opacity-50"
+            style={{ backgroundColor: "#1e293b" }}
+          >
+            <Send className="h-4 w-4" /> 최적화된 동선을 기사 앱으로 전송 (준비중)
+          </button>
+        </div>
+      )}
+
+      {/* 3) 합짐 제안 */}
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+        <p className="text-sm font-bold text-slate-900">합짐 제안</p>
+        <p className="mt-0.5 text-[11px] text-slate-400">거리가 가까운 거래처들을 한 차량에 같이 실을 수 있도록 묶어서 제안합니다.</p>
+
+        {groupsStatus === "loading" && <p className="mt-3 text-center text-xs text-slate-400">분석중...</p>}
+        {groupsStatus === "error" && <p className="mt-3 text-center text-xs text-slate-400">합짐 제안을 불러오지 못했습니다.</p>}
+        {groupsStatus === "ready" && groups.length === 0 && (
+          <p className="mt-3 text-center text-xs text-slate-400">지금 묶을 수 있는 가까운 거래처 조합이 없습니다.</p>
+        )}
+        {groupsStatus === "ready" && groups.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {groups.map((group, idx) => (
+              <div key={idx} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                <p className="text-[11px] font-bold text-slate-500">조합 {idx + 1} · {group.stopCount}곳</p>
+                <p className="mt-1 text-xs text-slate-700">{group.stops.map((s) => s.customerName).join(" · ")}</p>
+                <button
+                  onClick={() => setSelectedIds(group.stops.map((s) => s.customerId))}
+                  className="mt-2 text-[11px] font-bold"
+                  style={{ color: BRAND.deepGreen }}
+                >
+                  이 조합으로 동선 분석하기 →
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // 김해 — 오늘일정 화면. "제로 클릭 타임 트래킹" 구현부.
 //   - "카카오내비로 길찾기" 버튼 클릭 → 출발시각 자동 기록(markGimhaeDeparted)
 //   - "완료 보고 제출" 버튼 클릭 → CompletionReportModal을 열어 사진/서명/GPS
@@ -2378,6 +2689,7 @@ function CompletionReportModal({ item, customer, onClose, onSubmit }) {
 // ────────────────────────────────────────────────────────────────────────
 function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = false }) {
   const isAdmin = employee.role === "관리자";
+
   const [schedules, setSchedules] = useState([]);
   const [customers, setCustomers] = useState([]); // 거래처 좌표 조회용(지오펜싱 거리 계산에 필요)
   const [status, setStatus] = useState("loading");
@@ -2947,6 +3259,9 @@ function GimhaeHome({ employee }) {
   if (activeScreen === "schedule_register") {
     return <GimhaeScheduleScreen employee={employee} onBack={() => setActiveScreen(null)} initialShowRegisterForm />;
   }
+  if (activeScreen === "route_optimizer") {
+    return <GimhaeRouteOptimizerScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  }
   if (activeScreen === "customers") {
     return <GimhaeCustomerScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
@@ -2960,6 +3275,7 @@ function GimhaeHome({ employee }) {
   const menuCards = [
     { key: "schedule", icon: MapPin, label: "오늘일정", desc: "거래처 순회 납품 일정/완료처리", adminOnly: false },
     { key: "schedule_register", icon: PlusCircle, label: "일정 등록", desc: "신규 납품/방문 일정 빠르게 등록", adminOnly: true },
+    { key: "route_optimizer", icon: Route, label: "동선 최적화", desc: "합짐 제안 + 절감 효과(거리/시간/유류비)", adminOnly: true },
     { key: "customers", icon: Building2, label: "거래처정보", desc: "납품 거래처 목록 조회", adminOnly: false },
     { key: "vehicles", icon: Truck, label: "법인차량", desc: "차량 현황 및 보험 정보", adminOnly: false },
     { key: "employees", icon: Users, label: "직원명부", desc: "전체 직원 조회", adminOnly: true },
