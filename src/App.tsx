@@ -656,6 +656,18 @@ function formatNotificationTimestamp(iso) {
   return d.toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+/** 입력값에서 숫자만 남기고 1,000단위 콤마를 붙여 보여준다(37번 요청). */
+function formatNumberWithCommas(value) {
+  const digits = String(value || "").replace(/[^\d]/g, "");
+  if (!digits) return "";
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/** 콤마가 붙은 입력값에서 콤마를 제거하고 숫자만 남긴다(state에는 이 값을 저장). */
+function stripCommas(value) {
+  return String(value || "").replace(/[^\d]/g, "");
+}
+
 /** 알림 목록(누구나) — "listNotifications" 액션. 최신순 최대 200건. */
 async function listNotifications() {
   const data = await callGasWebApp({ action: "listNotifications" });
@@ -759,6 +771,8 @@ async function listGimhaeSchedule() {
     signerName: row.signer_name,
     completedLat: row.completed_lat,
     completedLng: row.completed_lng,
+    assignedVehicle: row.assigned_vehicle,
+    assignedVehicleType: row.assigned_vehicle_type,
   }));
 }
 
@@ -822,6 +836,24 @@ async function markGimhaeDeparted(actorEmployeeId, dispatchId) {
 }
 
 /**
+ * 일정 수락(35번) — "대기"인 일정을 "납품중"으로 바꾸고, 수락 시점 GPS와 배정차량을
+ * 같이 보낸다. 차량을 등록하지 않고 수락할 수도 있다(그 경우 완료 시 자동 주행거리
+ * 반영은 건너뛰어진다). — "acceptGimhaeSchedule" 액션.
+ */
+async function acceptGimhaeSchedule(actorEmployeeId, dispatchId, accept) {
+  const data = await callGasWebApp({
+    action: "acceptGimhaeSchedule",
+    actor_employee_id: actorEmployeeId,
+    dispatch_id: dispatchId,
+    accept_lat: accept && accept.lat != null ? accept.lat : undefined,
+    accept_lng: accept && accept.lng != null ? accept.lng : undefined,
+    vehicle_label: accept ? accept.vehicleLabel : undefined,
+    vehicle_type: accept ? accept.vehicleType : undefined,
+  });
+  return { dispatchId: data.dispatch_id, status: data.status };
+}
+
+/**
  * 오늘일정 완료처리 — "완료 보고 제출" 버튼을 누르는 순간 완료시각이 자동 기록된다.
  * photoBase64/signatureBase64는 "data:image/jpeg;base64,..." 형식의 데이터 URL이며,
  * 서버가 Google Drive에 저장하고 그 공유 URL을 돌려준다. signerName은 인수자 이름,
@@ -846,6 +878,9 @@ async function completeGimhaeSchedule(actorEmployeeId, dispatchId, extra = {}) {
     isCrossSupport: data.is_cross_support,
     photoUrl: data.photo_url,
     signatureUrl: data.signature_url,
+    mileageApplied: data.mileage_applied
+      ? { vehicleLabel: data.mileage_applied.vehicle_label, distanceKm: data.mileage_applied.distance_km, currentMileage: data.mileage_applied.current_mileage }
+      : null,
   };
 }
 
@@ -891,15 +926,44 @@ async function optimizeGimhaeRoute(actorEmployeeId, customerIds, origin) {
   };
 }
 
-/** 최적화된 동선을 특정 기사님에게 푸시로 전송(33번) — "shareOptimizedRoute" 액션. */
-async function shareOptimizedRoute(actorEmployeeId, targetEmployeeId, stopNames) {
+/** 최적화된 동선을 특정 담당자에게 푸시로 전송(33번) — "shareOptimizedRoute" 액션. */
+async function shareOptimizedRoute(actorEmployeeId, targetEmployeeId, stopNames, customerIds) {
   const data = await callGasWebApp({
     action: "shareOptimizedRoute",
     actor_employee_id: actorEmployeeId,
     target_employee_id: targetEmployeeId,
     stops: stopNames,
+    customer_ids: customerIds,
   });
-  return { sentToName: data.sent_to_name };
+  return { sentToName: data.sent_to_name, shareId: data.share_id };
+}
+
+/** 나에게 온, 아직 응답하지 않은 동선 추천 조회(34번) — "listPendingRouteShares" 액션. */
+async function listPendingRouteShares(actorEmployeeId) {
+  const data = await callGasWebApp({ action: "listPendingRouteShares", actor_employee_id: actorEmployeeId });
+  return (data.shares || []).map((s) => ({
+    shareId: s.share_id,
+    customerIds: s.customer_ids || [],
+    customerNames: s.customer_names || [],
+    createdAt: s.created_at,
+    senderEmployeeId: s.sender_employee_id,
+    senderName: s.sender_name,
+  }));
+}
+
+/** 동선 추천에 수락/거절로 응답(34번) — "respondToRouteShare" 액션. */
+async function respondToRouteShare(actorEmployeeId, shareId, response, accept) {
+  const data = await callGasWebApp({
+    action: "respondToRouteShare",
+    actor_employee_id: actorEmployeeId,
+    share_id: shareId,
+    response,
+    accept_lat: accept && accept.lat != null ? accept.lat : undefined,
+    accept_lng: accept && accept.lng != null ? accept.lng : undefined,
+    vehicle_label: accept ? accept.vehicleLabel : undefined,
+    vehicle_type: accept ? accept.vehicleType : undefined,
+  });
+  return { status: data.status, dispatchIds: data.dispatch_ids || [] };
 }
 
 /** 김해 합짐 제안(관리자 전용) — 오늘 대기중인 일정을 거리 기준으로 묶어서 보여준다. */
@@ -1186,7 +1250,7 @@ function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout, onOpenNoti
  */
 function NotificationScreen({ employee, onBack }) {
   const isAdmin = isElevatedRole(employee.role);
-  const [tab, setTab] = useState("feed"); // feed | settings
+  const [tab, setTab] = useState("urgent"); // urgent | feed | settings — 긴급이 묻히지 않도록 기본 탭으로 둔다(39번)
   const [notifications, setNotifications] = useState([]);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
@@ -1242,6 +1306,11 @@ function NotificationScreen({ employee, onBack }) {
 
   const isUrgentCategory = isUrgentNotificationCategory;
   const formatTimestamp = formatNotificationTimestamp;
+  // 39번 요청 — "요청"/"업체 긴급요청"은 별도의 "긴급" 탭에서만 보여주고,
+  // "알림 목록" 탭에는 그 외 일반 알림만 모아서 다른 알림들에 묻히지 않게 한다.
+  const urgentNotifications = notifications.filter((n) => isUrgentCategory(n.category));
+  const generalNotifications = notifications.filter((n) => !isUrgentCategory(n.category));
+
   const SETTING_GROUPS = [
     { site: "통합", items: [{ key: "all_enabled", label: "전체 알림" }] },
     { site: "마산(창원)", items: [
@@ -1256,12 +1325,29 @@ function NotificationScreen({ employee, onBack }) {
     ] },
   ];
 
+  const renderNotificationCard = (n, idx) => {
+    const urgent = isUrgentCategory(n.category);
+    return (
+      <div key={idx} className={`rounded-xl border p-4 ${urgent ? "border-red-300 bg-red-50" : "border-slate-200 bg-white"}`}>
+        <div className="flex items-center justify-between gap-2">
+          <p className={`text-sm font-bold ${urgent ? "text-red-600" : "text-slate-900"}`}>{n.title}</p>
+          <span className="flex-shrink-0 text-[10px] text-slate-400">{formatTimestamp(n.timestamp)}</span>
+        </div>
+        <p className={`mt-1 text-xs ${urgent ? "text-red-700" : "text-slate-600"}`}>{n.content}</p>
+        <p className="mt-1 text-[11px] text-slate-400">{n.site} · {n.actorName || "(미확인)"}</p>
+      </div>
+    );
+  };
+
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">알림</h1>
 
-      <div className={`mt-4 grid gap-2 ${isAdmin ? "grid-cols-2" : "grid-cols-1"}`}>
+      <div className={`mt-4 grid gap-2 ${isAdmin ? "grid-cols-3" : "grid-cols-2"}`}>
+        <button onClick={() => setTab("urgent")} className={`flex items-center justify-center gap-1 rounded-lg py-2 text-xs font-bold ${tab === "urgent" ? "text-white" : "border border-red-200 text-red-500"}`} style={tab === "urgent" ? { backgroundColor: "#dc2626" } : {}}>
+          긴급{urgentNotifications.length > 0 ? ` (${urgentNotifications.length})` : ""}
+        </button>
         <button onClick={() => setTab("feed")} className={`rounded-lg py-2 text-xs font-bold ${tab === "feed" ? "text-white" : "border border-slate-200 text-slate-500"}`} style={tab === "feed" ? { backgroundColor: BRAND.deepGreen } : {}}>
           알림 목록
         </button>
@@ -1272,26 +1358,27 @@ function NotificationScreen({ employee, onBack }) {
         )}
       </div>
 
+      {tab === "urgent" && (
+        <>
+          {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
+          {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
+          {status === "ready" && (
+            <div className="mt-4 space-y-2">
+              {urgentNotifications.length === 0 && <p className="py-8 text-center text-xs text-slate-400">긴급 알림(요청/업체 긴급요청)이 없습니다.</p>}
+              {urgentNotifications.map(renderNotificationCard)}
+            </div>
+          )}
+        </>
+      )}
+
       {tab === "feed" && (
         <>
           {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
           {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
           {status === "ready" && (
             <div className="mt-4 space-y-2">
-              {notifications.length === 0 && <p className="py-8 text-center text-xs text-slate-400">알림이 없습니다.</p>}
-              {notifications.map((n, idx) => {
-                const urgent = isUrgentCategory(n.category);
-                return (
-                  <div key={idx} className={`rounded-xl border p-4 ${urgent ? "border-red-300 bg-red-50" : "border-slate-200 bg-white"}`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className={`text-sm font-bold ${urgent ? "text-red-600" : "text-slate-900"}`}>{n.title}</p>
-                      <span className="flex-shrink-0 text-[10px] text-slate-400">{formatTimestamp(n.timestamp)}</span>
-                    </div>
-                    <p className={`mt-1 text-xs ${urgent ? "text-red-700" : "text-slate-600"}`}>{n.content}</p>
-                    <p className="mt-1 text-[11px] text-slate-400">{n.site} · {n.actorName || "(미확인)"}</p>
-                  </div>
-                );
-              })}
+              {generalNotifications.length === 0 && <p className="py-8 text-center text-xs text-slate-400">알림이 없습니다.</p>}
+              {generalNotifications.map(renderNotificationCard)}
             </div>
           )}
         </>
@@ -1493,7 +1580,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
    * 더 확인한 뒤 수량을 입력해 "장바구니에 추가"를 누르도록 한다(스캔만으로
    * 바로 등록까지 가지 않아, 잘못 스캔했을 때 되돌리기 쉽다). */
   const handleScanResult = (text) => {
-    setPartNo(text);
+    setPartNo(String(text).toUpperCase());
     setScannerOpen(false);
     setLineError("");
   };
@@ -1710,7 +1797,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
           <div className="mt-1.5 flex items-center gap-2">
             <input
               value={partNo}
-              onChange={(e) => setPartNo(e.target.value)}
+              onChange={(e) => setPartNo(e.target.value.toUpperCase())}
               placeholder="바코드 스캔 또는 직접 입력"
               disabled={submitting}
               className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
@@ -1731,10 +1818,10 @@ function TransactionRegisterScreen({ employee, onBack }) {
           <div>
             <label className="text-xs font-semibold text-slate-500">{type} 수량 *</label>
             <input
-              type="number"
-              min="1"
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
+              type="text"
+              inputMode="numeric"
+              value={formatNumberWithCommas(quantity)}
+              onChange={(e) => setQuantity(stripCommas(e.target.value))}
               placeholder="0"
               disabled={submitting}
               className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
@@ -2231,10 +2318,11 @@ function MaterialLocationScreen({ onBack }) {
   const [result, setResult] = useState(null);
   const [status, setStatus] = useState("idle"); // idle | loading | error
   const [error, setError] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!partNo.trim()) {
+  const runSearch = async (rawPartNo) => {
+    const trimmed = String(rawPartNo || "").trim();
+    if (!trimmed) {
       setError("PART NO를 입력해주세요.");
       return;
     }
@@ -2242,13 +2330,27 @@ function MaterialLocationScreen({ onBack }) {
     setStatus("loading");
     setResult(null);
     try {
-      const data = await findMaterialLocation(partNo.trim());
+      const data = await findMaterialLocation(trimmed);
       setResult(data);
       setStatus("idle");
     } catch (err) {
       setError(err.message || "위치를 찾지 못했습니다.");
       setStatus("error");
     }
+  };
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    runSearch(partNo);
+  };
+
+  // 바코드를 스캔하면 PART NO 칸에 채우고 모달을 닫은 뒤, 곧바로 조회까지 실행한다
+  // (입출고 등록과 달리 위치찾기는 수량 등 추가 입력이 필요 없어 바로 조회해도 된다).
+  const handleScanResult = (text) => {
+    const upper = String(text).toUpperCase();
+    setPartNo(upper);
+    setScannerOpen(false);
+    runSearch(upper);
   };
 
   const hasFloorPlan = result && FLOOR_PLANS[result.floor];
@@ -2265,14 +2367,24 @@ function MaterialLocationScreen({ onBack }) {
         <Search className="h-4 w-4 text-slate-400" />
         <input
           value={partNo}
-          onChange={(e) => setPartNo(e.target.value)}
+          onChange={(e) => setPartNo(e.target.value.toUpperCase())}
           placeholder="PART NO 입력"
           className="w-full text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none"
         />
+        <button
+          type="button"
+          onClick={() => setScannerOpen(true)}
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-white"
+          style={{ backgroundColor: BRAND.deepGreen }}
+        >
+          <ScanLine className="h-5 w-5" />
+        </button>
         <button type="submit" className="rounded-md px-3 py-1.5 text-xs font-bold text-white" style={{ backgroundColor: BRAND.deepGreen }}>
           조회
         </button>
       </form>
+
+      {scannerOpen && <BarcodeScannerModal onScan={handleScanResult} onClose={() => setScannerOpen(false)} />}
 
       {status === "error" && <p className="mt-4 text-xs font-semibold text-red-500">{error}</p>}
 
@@ -2437,7 +2549,7 @@ function MaterialRegisterScreen({ employee, onBack }) {
       <form onSubmit={handleSubmit} className="mt-5 space-y-4">
         <div>
           <label className="text-xs font-semibold text-slate-500">PART NO *</label>
-          <input value={partNo} onChange={(e) => setPartNo(e.target.value)} disabled={submitting}
+          <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} disabled={submitting}
             className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
         </div>
         <div>
@@ -2741,7 +2853,13 @@ function ChangwonHome({ employee }) {
     <main className="mx-auto max-w-3xl px-6 py-8">
       <h1 className="text-xl font-bold text-slate-900">창원(마산)공장 입출고 관리</h1>
       <p className="mt-1 text-sm text-slate-400">
-        {employee.name}{employee.title} · {isAdmin ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다." : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 입출고 등록/조회가 가능합니다.`}
+        {employee.name}{employee.title} · {
+          employee.role === "관리자"
+            ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다."
+            : employee.role === "지원"
+            ? "지원 권한으로 일부 메뉴를 임시로 사용할 수 있습니다."
+            : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 입출고 등록/조회가 가능합니다.`
+        }
       </p>
 
       <div className="mt-6 grid grid-cols-2 gap-3">
@@ -3217,7 +3335,9 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
   const loadGimhaeEmployees = async () => {
     try {
       const data = await listEmployees(employee.employeeId);
-      setGimhaeEmployees(data.filter((e) => e.homeSite === "gimhae"));
+      // 김해 소속 직원 + (소속과 무관하게) 지원 권한 직원도 포함한다 — 마산 소속이지만
+      // 지원으로 김해 납품을 나가는 경우가 있다는 42번 현장 피드백 반영.
+      setGimhaeEmployees(data.filter((e) => e.homeSite === "gimhae" || e.role === "지원"));
     } catch (err) {
       // 직원 목록을 못 불러와도 동선 분석 자체에는 영향 없음 — 전송 버튼만 비활성화됨.
     }
@@ -3414,8 +3534,8 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
           )}
 
           <div className="mt-4 rounded-xl border border-slate-200 p-3">
-            <p className="text-xs font-bold text-slate-500">추천 순서를 기사님 휴대폰으로 보내기</p>
-            <p className="mt-0.5 text-[11px] text-slate-400">선택한 기사님께 위 "카카오 AI 추천 순서"를 푸시 알림으로 보냅니다.</p>
+            <p className="text-xs font-bold text-slate-500">추천 순서를 담당자 휴대폰으로 보내기</p>
+            <p className="mt-0.5 text-[11px] text-slate-400">선택한 담당자께 위 "카카오 AI 추천 순서"를 푸시 알림으로 보냅니다.</p>
             <div className="mt-2.5 flex items-center gap-2">
               <select
                 value={shareTargetId}
@@ -3423,19 +3543,22 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
                 disabled={sharing}
                 className="flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50"
               >
-                <option value="">기사님 선택</option>
+                <option value="">담당자 선택</option>
                 {gimhaeEmployees.map((e) => (
-                  <option key={e.employeeId} value={e.employeeId}>{e.name}{e.title}</option>
+                  <option key={e.employeeId} value={e.employeeId}>
+                    {e.name}{e.title}{e.homeSite !== "gimhae" ? ` (${SITES[e.homeSite]?.label || e.homeSite} · 지원)` : ""}
+                  </option>
                 ))}
               </select>
               <button
                 onClick={async () => {
-                  if (!shareTargetId) { setShareError("보낼 기사님을 선택해주세요."); return; }
+                  if (!shareTargetId) { setShareError("보낼 담당자를 선택해주세요."); return; }
                   setShareError("");
                   setSharing(true);
                   try {
                     const stopNames = result.recommendedOrder.map((o) => o.customerName);
-                    const sendResult = await shareOptimizedRoute(employee.employeeId, shareTargetId, stopNames);
+                    const customerIds = result.recommendedOrder.map((o) => o.customerId);
+                    const sendResult = await shareOptimizedRoute(employee.employeeId, shareTargetId, stopNames, customerIds);
                     setShareSentName(sendResult.sentToName);
                   } catch (err) {
                     setShareError(err.message || "전송 중 오류가 발생했습니다.");
@@ -3492,29 +3615,119 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
   );
 }
 
+/**
+ * 수락 폼(35·40번) — 법인차량은 드롭다운에서 고르고, 개인차량은 직접 입력한다.
+ * 차량을 고르지 않고도 수락할 수 있다(그 경우 완료 시 자동 주행거리 반영만
+ * 건너뛰어진다 — 개인차량을 등록하지 않고 운행하면 회사가 주유비를 지원해줄
+ * 근거 자체가 없다는 게 현장 운영 정책이라, 입력 자체를 강제하지는 않는다).
+ */
+function GimhaeAcceptForm({ vehicles, submitting, onSubmit, onCancel }) {
+  const [vehicleMode, setVehicleMode] = useState("법인"); // 법인 | 개인 | 없음
+  const [corporateLabel, setCorporateLabel] = useState("");
+  const [personalLabel, setPersonalLabel] = useState("");
+  const [error, setError] = useState("");
+
+  const corporateVehicles = vehicles.filter((v) => v.ownershipType === "법인");
+
+  const handleConfirm = async () => {
+    setError("");
+    let vehicleLabel = "";
+    if (vehicleMode === "법인") {
+      if (!corporateLabel) { setError("법인차량을 선택해주세요."); return; }
+      vehicleLabel = corporateLabel;
+    } else if (vehicleMode === "개인") {
+      if (!personalLabel.trim()) { setError("개인차량 번호를 입력해주세요."); return; }
+      vehicleLabel = personalLabel.trim();
+    }
+
+    const position = await getCurrentPosition();
+    onSubmit({
+      lat: position.error ? null : position.lat,
+      lng: position.error ? null : position.lng,
+      vehicleLabel,
+      vehicleType: vehicleLabel ? vehicleMode : "",
+    });
+  };
+
+  return (
+    <div className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+      <div>
+        <label className="text-xs font-semibold text-slate-500">담당자</label>
+        <p className="mt-1 text-sm font-bold text-slate-700">본인으로 수락됩니다</p>
+      </div>
+      <div>
+        <label className="text-xs font-semibold text-slate-500">이용 차량</label>
+        <div className="mt-1.5 grid grid-cols-3 gap-2">
+          {["법인", "개인", "없음"].map((opt) => (
+            <button key={opt} type="button" onClick={() => setVehicleMode(opt)} disabled={submitting}
+              className={`rounded-lg py-2 text-xs font-bold ${vehicleMode === opt ? "text-white" : "border border-slate-200 text-slate-500"}`}
+              style={vehicleMode === opt ? { backgroundColor: BRAND.deepGreen } : {}}>
+              {opt}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {vehicleMode === "법인" && (
+        <select value={corporateLabel} onChange={(e) => setCorporateLabel(e.target.value)} disabled={submitting}
+          className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50">
+          <option value="">법인차량 선택</option>
+          {corporateVehicles.map((v) => (
+            <option key={v.label} value={v.label}>{v.label}</option>
+          ))}
+        </select>
+      )}
+      {vehicleMode === "개인" && (
+        <input value={personalLabel} onChange={(e) => setPersonalLabel(e.target.value)} placeholder="예: 카니발(12가3456)" disabled={submitting}
+          className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+      )}
+      {vehicleMode === "없음" && (
+        <p className="text-[11px] text-amber-600">차량을 등록하지 않으면 이번 배송의 주행거리/유류비가 자동으로 반영되지 않습니다.</p>
+      )}
+
+      {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
+
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={onCancel} disabled={submitting} className="rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-600 disabled:opacity-50">
+          취소
+        </button>
+        <button type="button" onClick={handleConfirm} disabled={submitting} className="rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+          {submitting ? "처리중..." : "수락 확정"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // 김해 — 오늘일정 화면. "제로 클릭 타임 트래킹" 구현부.
-//   - "카카오내비로 길찾기" 버튼 클릭 → 출발시각 자동 기록(markGimhaeDeparted)
-//   - "완료 보고 제출" 버튼 클릭 → CompletionReportModal을 열어 사진/서명/GPS
-//     지오펜싱(실제 위치 기반)을 확인한 뒤 완료시각을 자동 기록한다.
+//   - 대기중(아직 아무도 안 받음) → "수락"을 누르면 납품중으로 바뀐다(35번 요청).
+//     수락 시 GPS와 배정차량을 같이 기록해, 완료 시점과의 거리를 계산해
+//     배정차량 주행거리에 자동으로 반영한다(40번 요청).
+//   - 납품중 → "카카오내비로 길찾기"(출발시각 자동 기록) → "완료 보고 제출"
+//     (CompletionReportModal: 사진/서명/GPS 지오펜싱 확인 후 완료시각 자동 기록)
 // ────────────────────────────────────────────────────────────────────────
 function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = false }) {
   const isAdmin = isElevatedRole(employee.role); // 관리자 또는 지원(15번)
 
   const [schedules, setSchedules] = useState([]);
   const [customers, setCustomers] = useState([]); // 거래처 좌표 조회용(지오펜싱 거리 계산에 필요)
+  const [vehicles, setVehicles] = useState([]); // 수락 시 차량 선택용
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [reportTarget, setReportTarget] = useState(null); // 완료 보고 모달을 열 대상 일정
+  const [acceptTargetId, setAcceptTargetId] = useState(null); // 수락 폼을 열어둔 대상 배차ID
   const [showRegisterForm, setShowRegisterForm] = useState(initialShowRegisterForm && isAdmin);
+  const [completeNotice, setCompleteNotice] = useState(null); // 완료 시 자동 주행거리 반영 안내
 
   const reload = async () => {
     setStatus("loading");
     try {
-      const [scheduleData, customerData] = await Promise.all([listGimhaeSchedule(), listGimhaeCustomers()]);
+      const [scheduleData, customerData, vehicleData] = await Promise.all([listGimhaeSchedule(), listGimhaeCustomers(), listVehicles()]);
       setSchedules(scheduleData);
       setCustomers(customerData);
+      setVehicles(vehicleData);
       setStatus("ready");
     } catch (err) {
       setError(err.message || "오늘일정을 불러오지 못했습니다.");
@@ -3525,6 +3738,20 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
   useEffect(() => { reload(); }, []);
 
   const findCustomerFor = (item) => customers.find((c) => c.customerId === item.customerId) || null;
+
+  const handleAccept = async (item, acceptInfo) => {
+    setBusyId(item.dispatchId);
+    setError("");
+    try {
+      await acceptGimhaeSchedule(employee.employeeId, item.dispatchId, acceptInfo);
+      setAcceptTargetId(null);
+      await reload();
+    } catch (err) {
+      setError(err.message || "수락 처리 중 오류가 발생했습니다.");
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   // 카카오내비 호출(kakaonavi:// 커스텀 스킴)은 반드시 클릭 이벤트 안에서 "동기적으로"
   // 바로 실행해야 한다. 서버 호출(markGimhaeDeparted)을 먼저 await로 기다리면 그 사이
@@ -3550,15 +3777,19 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
     const item = reportTarget;
     setBusyId(item.dispatchId);
     try {
-      await completeGimhaeSchedule(employee.employeeId, item.dispatchId, reportData);
+      const result = await completeGimhaeSchedule(employee.employeeId, item.dispatchId, reportData);
       setReportTarget(null);
+      if (result.mileageApplied) {
+        setCompleteNotice(`${result.mileageApplied.vehicleLabel} 차량 주행거리에 ${result.mileageApplied.distanceKm}km가 자동으로 반영됐습니다.`);
+      }
       await reload();
     } finally {
       setBusyId(null);
     }
   };
 
-  const pending = schedules.filter((s) => s.status !== "완료");
+  const waiting = schedules.filter((s) => s.status === "대기" || (s.status !== "완료" && s.status !== "납품중"));
+  const inDelivery = schedules.filter((s) => s.status === "납품중");
   const completed = schedules.filter((s) => s.status === "완료");
 
   return (
@@ -3577,7 +3808,7 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
           </button>
         </div>
       </div>
-      <p className="mt-1 text-sm text-slate-400">거래처 순회 납품 일정과 완료처리입니다.</p>
+      <p className="mt-1 text-sm text-slate-400">일정 등록 → 대기중 → 수락 → 납품중 → 완료 순서로 진행됩니다.</p>
 
       {showRegisterForm && (
         <GimhaeScheduleRegisterForm
@@ -3588,6 +3819,13 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
         />
       )}
 
+      {completeNotice && (
+        <p className="mt-3 flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-600">
+          <Fuel className="h-3.5 w-3.5 flex-shrink-0" style={{ color: BRAND.deepGreen }} /> {completeNotice}
+          <button onClick={() => setCompleteNotice(null)} className="ml-auto text-slate-400">×</button>
+        </p>
+      )}
+
       {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
       {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
       {error && status !== "error" && <p className="mt-3 text-xs font-semibold text-red-500">{error}</p>}
@@ -3595,10 +3833,49 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
       {status === "ready" && (
         <div className="mt-5 space-y-5">
           <section>
-            <p className="text-xs font-bold text-slate-500">대기중 ({pending.length})</p>
+            <p className="text-xs font-bold text-slate-500">대기중 ({waiting.length})</p>
             <div className="mt-2 space-y-3">
-              {pending.length === 0 && <p className="py-6 text-center text-xs text-slate-400">대기중인 일정이 없습니다.</p>}
-              {pending.map((item) => {
+              {waiting.length === 0 && <p className="py-6 text-center text-xs text-slate-400">대기중인 일정이 없습니다.</p>}
+              {waiting.map((item) => {
+                const busy = busyId === item.dispatchId;
+                return (
+                  <div key={item.dispatchId} className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-sm font-bold text-slate-900">{item.customerName}</p>
+                        <p className="text-xs text-slate-400">{item.taskDescription}</p>
+                      </div>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">{item.dispatchId}</span>
+                    </div>
+
+                    <button
+                      onClick={() => setAcceptTargetId(acceptTargetId === item.dispatchId ? null : item.dispatchId)}
+                      disabled={busy}
+                      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50"
+                      style={{ backgroundColor: BRAND.deepGreen }}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" /> 수락
+                    </button>
+
+                    {acceptTargetId === item.dispatchId && (
+                      <GimhaeAcceptForm
+                        vehicles={vehicles}
+                        submitting={busy}
+                        onSubmit={(acceptInfo) => handleAccept(item, acceptInfo)}
+                        onCancel={() => setAcceptTargetId(null)}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section>
+            <p className="text-xs font-bold text-slate-500">납품중 ({inDelivery.length})</p>
+            <div className="mt-2 space-y-3">
+              {inDelivery.length === 0 && <p className="py-6 text-center text-xs text-slate-400">납품중인 일정이 없습니다.</p>}
+              {inDelivery.map((item) => {
                 const busy = busyId === item.dispatchId;
                 const departed = !!item.departedAt;
                 return (
@@ -3611,9 +3888,17 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">{item.dispatchId}</span>
                     </div>
 
-                    <div className="mt-2 flex items-center gap-1.5 text-[11px] text-slate-400">
-                      <Clock className="h-3 w-3" />
-                      {departed ? `출발 ${new Date(item.departedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}` : "아직 출발 전"}
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {departed ? `출발 ${new Date(item.departedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}` : "아직 출발 전"}
+                      </span>
+                      <span className="font-semibold" style={{ color: BRAND.deepGreen }}>담당: {item.processedBy || "-"}</span>
+                      {item.assignedVehicle && (
+                        <span className="flex items-center gap-1">
+                          <Truck className="h-3 w-3" /> {item.assignedVehicle}
+                        </span>
+                      )}
                     </div>
 
                     <div className="mt-3 grid grid-cols-2 gap-2">
@@ -3653,6 +3938,7 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                     </div>
                     <p className="mt-1 text-[11px] text-slate-400">
                       {item.completedAt && new Date(item.completedAt).toLocaleString("ko-KR")} · 처리: {item.processedBy || "-"}
+                      {item.assignedVehicle ? ` · ${item.assignedVehicle}` : ""}
                     </p>
                     {item.isCrossSupport && (
                       <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-600">
@@ -3832,7 +4118,7 @@ function GimhaeDeliveryHistoryScreen({ employee, onBack }) {
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">납품경로 타임라인</h1>
-      <p className="mt-1 text-sm text-slate-400">날짜를 선택하면 그날 기사별로 방문한 거래처 순서를 볼 수 있습니다.</p>
+      <p className="mt-1 text-sm text-slate-400">날짜를 선택하면 그날 담당자별로 방문한 거래처 순서를 볼 수 있습니다.</p>
 
       <div className="mt-4 flex items-center gap-2">
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
@@ -4464,7 +4750,7 @@ function VehicleFuelPurchaseForm({ employee, vehicle, onDone, onCancel }) {
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="text-xs font-semibold text-slate-500">주유금액(원) *</label>
-          <input type="number" value={amountWon} onChange={(e) => setAmountWon(e.target.value)} placeholder="예: 70000" disabled={submitting}
+          <input type="text" inputMode="numeric" value={formatNumberWithCommas(amountWon)} onChange={(e) => setAmountWon(stripCommas(e.target.value))} placeholder="예: 70,000" disabled={submitting}
             className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
         </div>
         <div>
@@ -4774,7 +5060,7 @@ function GimhaeHome({ employee }) {
     { key: "schedule", icon: MapPin, label: "오늘일정", desc: "거래처 순회 납품 일정/완료처리", adminOnly: false },
     { key: "schedule_register", icon: PlusCircle, label: "일정 등록", desc: "신규 납품/방문 일정 빠르게 등록", adminOnly: true },
     { key: "route_optimizer", icon: Route, label: "동선 최적화", desc: "합짐 제안 + 절감 효과(거리/시간/유류비)", adminOnly: true },
-    { key: "delivery_history", icon: Clock, label: "납품경로 타임라인", desc: "날짜·기사별 방문 순서 + 지도로 보기", adminOnly: true },
+    { key: "delivery_history", icon: Clock, label: "납품경로 타임라인", desc: "날짜·담당자별 방문 순서 + 지도로 보기", adminOnly: true },
     { key: "customers", icon: Building2, label: "거래처정보", desc: "납품 거래처 목록 조회", adminOnly: false },
     { key: "vehicles", icon: Truck, label: "차량관리", desc: "법인·개인 차량 현황 및 보험 정보", adminOnly: false },
     { key: "urgent_request", icon: Megaphone, label: "업체 긴급요청", desc: "거래처 현장의 긴급 요청 등록", adminOnly: false, urgent: true },
@@ -4786,7 +5072,13 @@ function GimhaeHome({ employee }) {
     <main className="mx-auto max-w-3xl px-6 py-8">
       <h1 className="text-xl font-bold text-slate-900">김해공장 물류 동선 관리</h1>
       <p className="mt-1 text-sm text-slate-400">
-        {employee.name}{employee.title} · {isAdmin ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다." : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 오늘일정 조회/완료처리가 가능합니다.`}
+        {employee.name}{employee.title} · {
+          employee.role === "관리자"
+            ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다."
+            : employee.role === "지원"
+            ? "지원 권한으로 일부 메뉴를 임시로 사용할 수 있습니다."
+            : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 오늘일정 조회/완료처리가 가능합니다.`
+        }
       </p>
 
       <div className="mt-6 grid grid-cols-2 gap-3">
@@ -4881,6 +5173,84 @@ function setLastSeenNotifTimestamp(iso) {
 // ────────────────────────────────────────────────────────────────────────
 // 최상위 컴포넌트 — 로그인 → (필요시) 강제 비밀번호 변경 → 근무지별 화면 분기
 // ────────────────────────────────────────────────────────────────────────
+/**
+ * 동선 추천 수락/거절 팝업(34번) — 알림 팝업처럼 화면 중앙에 뜨고, 수락하면
+ * 차량(법인/개인)을 고를 수 있게 한 단계 더 들어간다. 수락하는 순간 서버에서
+ * 해당 거래처들의 "오늘일정"이 곧바로 "납품중"으로 만들어진다(=오늘 납품을
+ * 나가는 것으로 간주).
+ */
+function RouteSharePopup({ employee, share, onResolved }) {
+  const [vehicles, setVehicles] = useState([]);
+  const [showAcceptForm, setShowAcceptForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    listVehicles().then(setVehicles).catch(() => {});
+  }, []);
+
+  const handleDecline = async () => {
+    setSubmitting(true);
+    setError("");
+    try {
+      await respondToRouteShare(employee.employeeId, share.shareId, "거절", null);
+      onResolved();
+    } catch (err) {
+      setError(err.message || "처리 중 오류가 발생했습니다.");
+      setSubmitting(false);
+    }
+  };
+
+  const handleAccept = async (acceptInfo) => {
+    setSubmitting(true);
+    setError("");
+    try {
+      await respondToRouteShare(employee.employeeId, share.shareId, "수락", acceptInfo);
+      onResolved();
+    } catch (err) {
+      setError(err.message || "처리 중 오류가 발생했습니다.");
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+        <p className="text-sm font-bold text-slate-900">오늘 동선 안내 (추천)</p>
+        <p className="mt-1 text-xs text-slate-400">{share.senderName}님이 추천한 오늘 납품 순서입니다.</p>
+
+        <div className="mt-3 space-y-1.5">
+          {share.customerNames.map((name, idx) => (
+            <p key={idx} className="text-sm text-slate-700">{idx + 1}. {name}</p>
+          ))}
+        </div>
+
+        {error && <p className="mt-2 text-xs font-semibold text-red-500">{error}</p>}
+
+        {!showAcceptForm ? (
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button onClick={handleDecline} disabled={submitting} className="rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-600 disabled:opacity-50">
+              거절
+            </button>
+            <button onClick={() => setShowAcceptForm(true)} disabled={submitting} className="rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+              수락
+            </button>
+          </div>
+        ) : (
+          <div className="mt-3">
+            <GimhaeAcceptForm
+              vehicles={vehicles}
+              submitting={submitting}
+              onSubmit={handleAccept}
+              onCancel={() => setShowAcceptForm(false)}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function GreenSyncApp() {
   const [screen, setScreen] = useState(() => (loadSavedSession() ? "home" : "login")); // login | forcePasswordChange | home
   const [employee, setEmployee] = useState(() => loadSavedSession()?.employee || null);
@@ -4891,6 +5261,7 @@ export default function GreenSyncApp() {
   const [switchError, setSwitchError] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
   const [popupNotification, setPopupNotification] = useState(null);
+  const [routeSharePopup, setRouteSharePopup] = useState(null); // 34번 — 동선 추천 수락/거절 팝업
   const [siteSwitchToast, setSiteSwitchToast] = useState(null); // 근무지 전환 완료 안내(26번)
   const siteSwitchToastTimerRef = useRef(null);
   const pushSetupDoneRef = useRef(false); // 같은 로그인 세션에서 푸시 설정을 두 번 시도하지 않도록
@@ -4945,6 +5316,32 @@ export default function GreenSyncApp() {
       clearTimeout(firstCheckTimer);
     };
   }, [screen]);
+
+  // 34번 요청 — 누군가 "추천 순서를 담당자 휴대폰으로 보내기"로 나에게 동선을
+  // 보내면, 이미 다른 팝업이 떠 있지 않을 때 화면 중앙에 수락/거절 팝업을 띄운다.
+  useEffect(() => {
+    if (screen !== "home" || !employee) return;
+    let cancelled = false;
+
+    const checkPendingRouteShares = async () => {
+      if (routeSharePopup) return; // 이미 팝업이 떠 있으면 중복으로 새로 띄우지 않음
+      try {
+        const shares = await listPendingRouteShares(employee.employeeId);
+        if (cancelled || shares.length === 0) return;
+        setRouteSharePopup(shares[0]);
+      } catch (err) {
+        // 조회 실패는 조용히 무시 — 메인 화면 사용에 영향 주지 않음.
+      }
+    };
+
+    const intervalId = setInterval(checkPendingRouteShares, 30000);
+    const firstCheckTimer = setTimeout(checkPendingRouteShares, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      clearTimeout(firstCheckTimer);
+    };
+  }, [screen, employee, routeSharePopup]);
 
   // 화면을 위로 당겼을 때 생기는 "고무줄(바운스) 스크롤"을 막는다. iOS에서 이 바운스가
   // 일어나는 동안 화면 맨 위쪽(와이파이/시간 표시 영역)이 같이 밀려 내려와 그 위에 있는
@@ -5115,6 +5512,14 @@ export default function GreenSyncApp() {
             </div>
           </div>
         </div>
+      )}
+
+      {routeSharePopup && (
+        <RouteSharePopup
+          employee={employee}
+          share={routeSharePopup}
+          onResolved={() => setRouteSharePopup(null)}
+        />
       )}
     </div>
   );
