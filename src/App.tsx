@@ -1017,18 +1017,30 @@ async function suggestGimhaeGrouping(actorEmployeeId) {
   return {
     groups: (data.groups || []).map((g) => ({
       stopCount: g.stop_count,
-      stops: g.stops.map((s) => ({ dispatchId: s.dispatch_id, customerId: s.customer_id, customerName: s.customer_name })),
+      stops: g.stops.map((s) => ({ dispatchId: s.dispatch_id, customerId: s.customer_id, customerName: s.customer_name, address: s.address })),
     })),
     // 46번 요청 — 이미 누군가 수락(납품중)한 거래처 근처에 대기중인 거래처가 있으면,
     // 그 사람에게 개인화해서 추천해주는 묶음(누가 수락했는지/기준 거래처가 무엇인지 포함).
+    // 48번 요청 — 주소/거리(m)도 같이 내려줘서, "왜 이 둘이 같이 묶였는지" 화면에서
+    // 바로 확인할 수 있게 한다.
     personalGroups: (data.personal_groups || []).map((g) => ({
       workerEmployeeId: g.worker_employee_id,
       workerName: g.worker_name,
+      anchorCustomerNames: g.anchor_customer_names || [],
+      anchorCount: g.anchor_count || 1,
+      anchorCustomerIds: g.anchor_customer_ids || [],
       anchorDispatchId: g.anchor_dispatch_id,
       anchorCustomerId: g.anchor_customer_id,
       anchorCustomerName: g.anchor_customer_name,
+      anchorAddress: g.anchor_address,
       stopCount: g.stop_count,
-      stops: g.stops.map((s) => ({ dispatchId: s.dispatch_id, customerId: s.customer_id, customerName: s.customer_name })),
+      stops: g.stops.map((s) => ({
+        dispatchId: s.dispatch_id,
+        customerId: s.customer_id,
+        customerName: s.customer_name,
+        address: s.address,
+        distanceM: s.distance_m,
+      })),
     })),
   };
 }
@@ -3372,6 +3384,8 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
   const [personalSendingKey, setPersonalSendingKey] = useState(null);
   const [personalSentKey, setPersonalSentKey] = useState(null);
   const [personalSendError, setPersonalSendError] = useState("");
+  // 48번 요청 — "동선에 추가"할 때 이미 처리된 거래처를 걸러냈다는 안내문구.
+  const [staleNotice, setStaleNotice] = useState("");
 
   const reload = async () => {
     setStatus("loading");
@@ -3456,19 +3470,69 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
     setSelectedIds([]);
     setResult(null);
     setAnalyzeError("");
+    setStaleNotice("");
+  };
+
+  // 48번 요청 — "이미 수락한 거래처 근처 추천"/"합짐 제안" 데이터는 화면이 열릴
+  // 때 한 번만 불러온 것이라, 그 사이에 누군가 완료 처리를 해버리면 이미 끝난
+  // 거래처가 추천 카드에 그대로 남아있을 수 있다(영상에서 네오플라테크창원·
+  // 그린산업 마산공장이 이미 "완료"인데도 "방문 순서 비교"에 다시 등장한 원인).
+  // 그래서 추천 카드를 "동선에 추가"하거나 "보내기"로 실제로 반영하는 순간엔
+  // 항상 최신 상태를 다시 받아와서, 이미 끝났거나 상태가 바뀐 거래처는 자동으로
+  // 걸러내고 알려준다.
+  const getFreshValidCustomerIds = async () => {
+    const fresh = await listGimhaeSchedule();
+    const pendingIds = new Set(fresh.filter((s) => s.status === "대기").map((s) => s.customerId));
+    const myInProgressIds = new Set(
+      fresh.filter((s) => s.status === "납품중" && isSameEmployeeId(s.workerEmployeeId, employee.employeeId)).map((s) => s.customerId)
+    );
+    return { pendingIds, myInProgressIds };
+  };
+
+  // "내 동선에 추가해서 분석하기" — 개인화 추천 카드에서, 본인이 수락한 거래처(들) +
+  // 추천된 근처 대기 거래처를 합쳐 동선 분석 후보로 넣는다.
+  const handleAddPersonalGroupToRoute = async (group) => {
+    setStaleNotice("");
+    const { pendingIds, myInProgressIds } = await getFreshValidCustomerIds();
+    const candidateIds = [...new Set([...(group.anchorCustomerIds || []), ...group.stops.map((s) => s.customerId)])];
+    const validIds = candidateIds.filter((id) => pendingIds.has(id) || myInProgressIds.has(id));
+    if (validIds.length < candidateIds.length) {
+      setStaleNotice("이미 처리되었거나 상태가 바뀐 거래처는 제외하고 담았습니다.");
+    }
+    setSelectedIds(validIds);
+  };
+
+  // "이 조합으로 동선 분석하기" — 합짐 제안(일반 묶음) 카드에서 그 조합을 후보로 넣는다.
+  const handleAddGeneralGroupToRoute = async (group) => {
+    setStaleNotice("");
+    const { pendingIds } = await getFreshValidCustomerIds();
+    const candidateIds = group.stops.map((s) => s.customerId);
+    const validIds = candidateIds.filter((id) => pendingIds.has(id));
+    if (validIds.length < candidateIds.length) {
+      setStaleNotice("이미 처리되었거나 상태가 바뀐 거래처는 제외하고 담았습니다.");
+    }
+    setSelectedIds(validIds);
   };
 
   // 46번 요청 — 개인화 추천 카드의 "OOO님께 보내기": 이미 그 사람이 수락한
   // 거래처 근처의 "대기" 거래처들을 그 사람에게 동선 추천으로 보낸다. 기존
   // "추천 순서를 담당자 휴대폰으로 보내기"와 같은 전송 경로(shareOptimizedRoute)를
   // 그대로 재사용한다 — 받는 사람은 평소처럼 화면 중앙 팝업에서 수락/거절하면 된다.
+  // 48번 요청 — 보내기 직전에도 최신 상태를 다시 확인해, 이미 다른 사람이
+  // 수락했거나 완료된 거래처는 빼고 보낸다(이미 끝난 일을 다시 추천하는 걸 방지).
   const handleSendPersonalGroup = async (group) => {
-    const key = group.anchorDispatchId;
+    const key = group.workerEmployeeId || group.anchorDispatchId;
     setPersonalSendError("");
     setPersonalSendingKey(key);
     try {
-      const stopNames = group.stops.map((s) => s.customerName);
-      const customerIds = group.stops.map((s) => s.customerId);
+      const { pendingIds } = await getFreshValidCustomerIds();
+      const stillPending = group.stops.filter((s) => pendingIds.has(s.customerId));
+      if (stillPending.length === 0) {
+        setPersonalSendError("추천했던 거래처가 이미 처리되어 더 보낼 후보가 없습니다.");
+        return;
+      }
+      const stopNames = stillPending.map((s) => s.customerName);
+      const customerIds = stillPending.map((s) => s.customerId);
       await shareOptimizedRoute(employee.employeeId, group.workerEmployeeId, stopNames, customerIds);
       setPersonalSentKey(key);
     } catch (err) {
@@ -3551,6 +3615,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
           </div>
         )}
 
+        {staleNotice && <p className="mt-3 text-xs font-semibold text-amber-600">{staleNotice}</p>}
         {analyzeError && <p className="mt-3 text-xs font-semibold text-red-500">{analyzeError}</p>}
 
         <button
@@ -3652,7 +3717,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
                 <option value="">담당자 선택</option>
                 {gimhaeEmployees.map((e) => (
                   <option key={e.employeeId} value={e.employeeId}>
-                    {e.name}{e.title}{e.homeSite !== "gimhae" ? ` (${SITES[e.homeSite]?.label || e.homeSite} · 지원)` : ""}
+                    {e.name}{e.title}{e.homeSite !== "gimhae" ? " (지원)" : ""}
                   </option>
                 ))}
               </select>
@@ -3692,30 +3757,49 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
       {/* 3) 개인화 추천 — 이미 수락(납품중)한 거래처 근처에 대기중인 거래처가 있을 때 */}
       {groupsStatus === "ready" && personalGroups.length > 0 && (
         <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
-          <p className="text-sm font-bold text-slate-900">이미 수락한 거래처 근처 추천</p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-slate-900">이미 수락한 거래처 근처 추천</p>
+            <button onClick={loadGroups} className="flex items-center gap-1 text-[11px] font-semibold text-slate-400">
+              <RefreshCw className="h-3 w-3" /> 새로고침
+            </button>
+          </div>
           <p className="mt-0.5 text-[11px] text-slate-400">
             누군가 이미 수락해서 "납품중"인 거래처 근처에, 아직 대기중인 거래처가 있으면 같이 들렀다 가도록 추천합니다.
+            누가 처리하는 사이에 바뀐 내용이 있으면 새로고침해서 최신 상태로 확인하세요.
           </p>
           <div className="mt-3 space-y-2">
             {personalGroups.map((group) => {
-              const key = group.anchorDispatchId;
+              const key = group.workerEmployeeId || group.anchorCustomerName;
               const isMine = isSameEmployeeId(group.workerEmployeeId, employee.employeeId);
+              const canSend = !!group.workerEmployeeId;
+              const anchorLabel =
+                group.anchorCount > 1
+                  ? `${group.anchorCustomerNames.slice(0, 2).join(", ")} 등 ${group.anchorCount}곳`
+                  : group.anchorCustomerName;
               return (
                 <div key={key} className="rounded-xl border border-slate-100 p-3" style={{ backgroundColor: BRAND.greenSoft }}>
                   <p className="text-[11px] font-bold" style={{ color: BRAND.deepGreen }}>
-                    {group.workerName || "담당자"}님이 수락한 "{group.anchorCustomerName}" 근처 · {group.stopCount}곳
+                    {group.workerName || "담당자"}님이 수락한 "{anchorLabel}" 근처 · {group.stopCount}곳
                   </p>
-                  <p className="mt-1 text-xs text-slate-700">{group.stops.map((s) => s.customerName).join(" · ")}</p>
+                  <div className="mt-1.5 space-y-1">
+                    {group.stops.map((s) => (
+                      <p key={s.dispatchId} className="text-xs text-slate-700">
+                        {s.customerName}
+                        {s.address && <span className="text-slate-400"> · {s.address}</span>}
+                        {s.distanceM != null && <span className="text-slate-400"> · 약 {(s.distanceM / 1000).toFixed(1)}km</span>}
+                      </p>
+                    ))}
+                  </div>
                   <div className="mt-2 flex items-center gap-3">
                     {isMine ? (
                       <button
-                        onClick={() => setSelectedIds([...new Set([group.anchorCustomerId, ...group.stops.map((s) => s.customerId)])])}
+                        onClick={() => handleAddPersonalGroupToRoute(group)}
                         className="text-[11px] font-bold"
                         style={{ color: BRAND.deepGreen }}
                       >
                         내 동선에 추가해서 분석하기 →
                       </button>
-                    ) : (
+                    ) : canSend ? (
                       <button
                         onClick={() => handleSendPersonalGroup(group)}
                         disabled={personalSendingKey === key}
@@ -3724,6 +3808,10 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
                       >
                         {personalSendingKey === key ? "전송중..." : `${group.workerName || "담당자"}님께 보내기 →`}
                       </button>
+                    ) : (
+                      <span className="text-[11px] text-slate-400">
+                        {group.workerName || "담당자"}님의 사번을 찾지 못해 전송할 수 없습니다(직원명부 확인 필요).
+                      </span>
                     )}
                     {personalSentKey === key && (
                       <span className="text-[11px] font-semibold text-emerald-600">전송 완료</span>
@@ -3752,9 +3840,16 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
             {groups.map((group, idx) => (
               <div key={idx} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                 <p className="text-[11px] font-bold text-slate-500">조합 {idx + 1} · {group.stopCount}곳</p>
-                <p className="mt-1 text-xs text-slate-700">{group.stops.map((s) => s.customerName).join(" · ")}</p>
+                <div className="mt-1 space-y-0.5">
+                  {group.stops.map((s) => (
+                    <p key={s.dispatchId} className="text-xs text-slate-700">
+                      {s.customerName}
+                      {s.address && <span className="text-slate-400"> · {s.address}</span>}
+                    </p>
+                  ))}
+                </div>
                 <button
-                  onClick={() => setSelectedIds(group.stops.map((s) => s.customerId))}
+                  onClick={() => handleAddGeneralGroupToRoute(group)}
                   className="mt-2 text-[11px] font-bold"
                   style={{ color: BRAND.deepGreen }}
                 >
