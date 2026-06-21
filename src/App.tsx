@@ -332,6 +332,72 @@ async function registerPushToken(actorEmployeeId, fcmToken) {
   });
 }
 
+/** 실제 업무 이벤트를 기다리지 않고 바로 FCM 발송 경로를 테스트 — "sendTestPush" 액션. */
+async function sendTestPush(actorEmployeeId) {
+  return callGasWebApp({ action: "sendTestPush", actor_employee_id: actorEmployeeId });
+}
+
+/**
+ * 푸시 진단 — setupPushNotifications()는 실패해도 조용히 넘어가기 때문에,
+ * "왜 안 오는지" 채팅으로는 알 방법이 없었다. 이 함수는 똑같은 단계를 하나씩
+ * 밟으면서 각 단계의 성공/실패와 실제 에러 메시지를 화면에 보여줄 수 있게
+ * 배열로 돌려준다 — 이 결과를 캡쳐해서 보내주면 정확히 어디서 막혔는지 알 수 있다.
+ */
+async function runPushDiagnostics(employeeId) {
+  const steps = [];
+  const add = (label, status, detail) => steps.push({ label, status, detail: detail || "" });
+
+  const hasBasicSupport = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  add("브라우저 기본 지원(서비스워커/푸시/알림 API)", hasBasicSupport ? "ok" : "fail",
+    hasBasicSupport ? "" : "이 브라우저/환경은 웹 푸시 자체를 지원하지 않습니다.");
+  if (!hasBasicSupport) return steps;
+
+  const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isStandalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  if (isIos) {
+    add("iOS 홈 화면 추가(PWA) 상태", isStandalone ? "ok" : "fail",
+      isStandalone ? "" : "iOS는 Safari로 그냥 열었을 땐 푸시가 동작하지 않습니다. 공유 버튼 → '홈 화면에 추가'로 설치한 뒤(iOS 16.4 이상) 그 아이콘으로 열어야 합니다.");
+  }
+
+  let fcmSupported = false;
+  try { fcmSupported = await isFcmSupported(); } catch (e) { /* ignore */ }
+  add("Firebase Messaging 지원 여부", fcmSupported ? "ok" : "fail",
+    fcmSupported ? "" : "이 브라우저 환경에서는 Firebase Messaging이 지원되지 않습니다.");
+  if (!fcmSupported) return steps;
+
+  add("알림 권한 상태(Notification.permission)",
+    Notification.permission === "granted" ? "ok" : "fail",
+    "현재 값: " + Notification.permission + (Notification.permission !== "granted" ? " (설정 > 알림에서 이 앱 알림을 허용해주세요)" : ""));
+
+  let registration = null;
+  try {
+    registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    add("서비스워커 등록(/firebase-messaging-sw.js)", "ok");
+  } catch (e) {
+    add("서비스워커 등록(/firebase-messaging-sw.js)", "fail", "파일이 배포 안 됐거나 경로가 다를 수 있습니다: " + (e && e.message ? e.message : String(e)));
+    return steps;
+  }
+
+  let token = null;
+  try {
+    const messaging = getMessaging(getFirebaseApp());
+    token = await getToken(messaging, { vapidKey: FIREBASE_VAPID_KEY, serviceWorkerRegistration: registration });
+    add("FCM 토큰 발급", token ? "ok" : "fail", token ? ("토큰 앞부분: " + token.slice(0, 16) + "...") : "토큰이 비어있게 발급됐습니다.");
+  } catch (e) {
+    add("FCM 토큰 발급", "fail", String(e && e.message ? e.message : e));
+    return steps;
+  }
+
+  try {
+    await registerPushToken(employeeId, token);
+    add("서버에 토큰 등록(푸시구독(통합) 시트 저장)", "ok");
+  } catch (e) {
+    add("서버에 토큰 등록(푸시구독(통합) 시트 저장)", "fail", String(e && e.message ? e.message : e));
+  }
+
+  return steps;
+}
+
 /**
  * 로그인 직후 1회 호출 — 알림 권한을 요청하고, 허용되면 FCM 토큰을 발급받아
  * 서버에 등록한다. 아래 모든 단계는 실패해도 조용히 넘어간다(권한 거부,
@@ -1328,6 +1394,12 @@ function NotificationScreen({ employee, onBack }) {
   const [settingsStatus, setSettingsStatus] = useState("idle");
   const [settingsError, setSettingsError] = useState("");
   const [savingKey, setSavingKey] = useState(null);
+  // 푸시 진단(48번 다음 요청) — 알림이 전혀 안 온다는 문제를 채팅으로도 정확히
+  // 진단할 수 있도록, 각 단계별 성공/실패와 에러 메시지를 화면에 그대로 보여준다.
+  const [diagSteps, setDiagSteps] = useState(null);
+  const [diagRunning, setDiagRunning] = useState(false);
+  const [testPushStatus, setTestPushStatus] = useState("idle"); // idle | sending | ok | fail
+  const [testPushMessage, setTestPushMessage] = useState("");
 
   const reloadFeed = async () => {
     setStatus("loading");
@@ -1478,6 +1550,84 @@ function NotificationScreen({ employee, onBack }) {
               </div>
             </div>
           ))}
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-bold text-slate-400">푸시 알림 진단</p>
+            <p className="mt-1 text-xs text-slate-500">
+              알림이 휴대폰으로 안 올 때, 이 기기에서 어느 단계가 막혔는지 확인합니다. 진단 후 이 화면을 캡쳐해서 보내주면 정확한 원인을 알 수 있습니다.
+            </p>
+            <button
+              onClick={async () => {
+                setDiagRunning(true);
+                setDiagSteps(null);
+                try {
+                  const result = await runPushDiagnostics(employee.employeeId);
+                  setDiagSteps(result);
+                } finally {
+                  setDiagRunning(false);
+                }
+              }}
+              disabled={diagRunning}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-700 disabled:opacity-50"
+            >
+              {diagRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bell className="h-3.5 w-3.5" />}
+              {diagRunning ? "진단중..." : "푸시 알림 진단 시작"}
+            </button>
+
+            {diagSteps && (
+              <div className="mt-3 space-y-2">
+                {diagSteps.map((s, idx) => (
+                  <div key={idx} className="flex items-start gap-2 text-xs">
+                    <span className="mt-0.5 flex-shrink-0">{s.status === "ok" ? "✅" : "❌"}</span>
+                    <span className="flex-1">
+                      <span className={s.status === "ok" ? "text-slate-700" : "font-semibold text-red-600"}>{s.label}</span>
+                      {s.detail && <span className="mt-0.5 block text-[11px] text-slate-400">{s.detail}</span>}
+                    </span>
+                  </div>
+                ))}
+                {Notification.permission !== "granted" && (
+                  <button
+                    onClick={async () => {
+                      await Notification.requestPermission();
+                      const result = await runPushDiagnostics(employee.employeeId);
+                      setDiagSteps(result);
+                    }}
+                    className="mt-2 text-[11px] font-bold"
+                    style={{ color: BRAND.deepGreen }}
+                  >
+                    알림 권한 다시 요청하기 →
+                  </button>
+                )}
+
+                <div className="mt-3 border-t border-slate-100 pt-3">
+                  <button
+                    onClick={async () => {
+                      setTestPushStatus("sending");
+                      setTestPushMessage("");
+                      try {
+                        const result = await sendTestPush(employee.employeeId);
+                        setTestPushStatus("ok");
+                        setTestPushMessage(result.message || "발송 요청을 보냈습니다.");
+                      } catch (err) {
+                        setTestPushStatus("fail");
+                        setTestPushMessage(err.message || "테스트 발송 중 오류가 발생했습니다.");
+                      }
+                    }}
+                    disabled={testPushStatus === "sending"}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50"
+                    style={{ backgroundColor: BRAND.deepGreen }}
+                  >
+                    {testPushStatus === "sending" ? "전송중..." : "테스트 푸시 보내기(서버 발송 경로 확인)"}
+                  </button>
+                  {testPushMessage && (
+                    <p className={`mt-2 text-[11px] ${testPushStatus === "fail" ? "font-semibold text-red-500" : "text-slate-500"}`}>
+                      {testPushMessage}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </main>
