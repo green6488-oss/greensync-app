@@ -1712,6 +1712,7 @@ function NotificationScreen({ employee, onBack }) {
       { key: "gimhae_schedule", label: "일정 등록 알림" },
       { key: "gimhae_complete", label: "완료 알림" },
       { key: "gimhae_urgent_request", label: "업체 긴급요청 알림" },
+      { key: "gimhae_route_share", label: "동선 전송 알림" },
     ] },
   ];
 
