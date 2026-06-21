@@ -1,7 +1,6 @@
 {
-  "rewrites": [
-    { "source": "/firebase-messaging-sw.js", "destination": "/firebase-messaging-sw.js" },
-    { "source": "/manifest.json", "destination": "/manifest.json" },
-    { "source": "/(.*)", "destination": "/index.html" }
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
