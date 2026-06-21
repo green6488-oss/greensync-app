@@ -1438,7 +1438,7 @@ function ForcePasswordChangeScreen({ employee, onChanged, onLogout }) {
 // ────────────────────────────────────────────────────────────────────────
 // 공통 헤더 — 모든 로그인 후 화면 상단에 표시. 근무지/직책/이름/로그아웃.
 // ────────────────────────────────────────────────────────────────────────
-function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout, onOpenNotifications }) {
+function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout, onOpenNotifications, onOpenPasswordChange }) {
   const site = SITES[activeSite];
   const canSwitchSite = SITE_SWITCHABLE_ROLES.includes(employee.role);
 
@@ -1469,6 +1469,9 @@ function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout, onOpenNoti
           <button onClick={onOpenNotifications} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 active:bg-slate-50">
             <Bell className="h-4 w-4" />
           </button>
+          <button onClick={onOpenPasswordChange} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 active:bg-slate-50" title="비밀번호 변경">
+            <KeyRound className="h-4 w-4" />
+          </button>
           <button onClick={onLogout} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 active:bg-slate-50">
             <LogOut className="h-4 w-4" />
           </button>
@@ -1486,6 +1489,139 @@ function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout, onOpenNoti
         </span>
       </div>
     </header>
+  );
+}
+
+/**
+ * 비밀번호 변경 모달 — 헤더의 키 아이콘으로 언제든 열 수 있다.
+ * ForcePasswordChangeScreen(초기 비밀번호 1111 사용자에게 로그인 직후 강제로
+ * 띄우는 화면)과는 별개로, 이미 비밀번호를 바꾼 사람도 본인이 원할 때 직접
+ * 바꿀 수 있게 한다 — 그래서 "현재 비밀번호" 확인란이 추가로 있다(서버도
+ * handleChangePassword에서 현재 비밀번호가 맞는지 검증한다).
+ */
+function PasswordChangeModal({ employee, onClose }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState("idle"); // idle | saving | done
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!currentPassword) {
+      setError("현재 비밀번호를 입력해주세요.");
+      return;
+    }
+    if (newPassword.length < 4) {
+      setError("새 비밀번호는 4자리 이상이어야 합니다.");
+      return;
+    }
+    if (newPassword === currentPassword) {
+      setError("현재 비밀번호와 동일한 값은 사용할 수 없습니다.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("새 비밀번호와 비밀번호 확인이 일치하지 않습니다.");
+      return;
+    }
+
+    setError("");
+    setStatus("saving");
+    try {
+      await changeEmployeePassword(employee.employeeId, currentPassword, newPassword);
+      setStatus("done");
+    } catch (err) {
+      setStatus("idle");
+      setError(err.message || "비밀번호 변경 중 오류가 발생했습니다.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center">
+      <div className="w-full max-w-sm rounded-t-2xl bg-white p-6 sm:rounded-2xl">
+        {status === "done" ? (
+          <div className="flex flex-col items-center py-4 text-center">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full" style={{ backgroundColor: BRAND.greenSoft }}>
+              <CheckCircle2 className="h-6 w-6" style={{ color: BRAND.deepGreen }} />
+            </span>
+            <p className="mt-3 text-sm font-bold text-slate-900">비밀번호가 변경되었습니다.</p>
+            <button
+              onClick={onClose}
+              className="mt-5 w-full rounded-lg py-2.5 text-sm font-bold text-white"
+              style={{ backgroundColor: BRAND.deepGreen }}
+            >
+              확인
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-slate-900">비밀번호 변경</h2>
+              <button onClick={onClose} className="text-slate-400"><X className="h-5 w-5" /></button>
+            </div>
+            <p className="mt-0.5 text-xs text-slate-400">{employee.name}님 ({employee.employeeId})</p>
+
+            <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-500">현재 비밀번호</label>
+                <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+                  <Lock className="h-4 w-4 text-slate-400" />
+                  <input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="현재 사용중인 비밀번호"
+                    disabled={status === "saving"}
+                    className="w-full text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500">새 비밀번호</label>
+                <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+                  <KeyRound className="h-4 w-4 text-slate-400" />
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="4자리 이상 입력"
+                    disabled={status === "saving"}
+                    className="w-full text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500">새 비밀번호 확인</label>
+                <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+                  <KeyRound className="h-4 w-4 text-slate-400" />
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="다시 입력"
+                    disabled={status === "saving"}
+                    className="w-full text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+                  />
+                </div>
+              </div>
+
+              {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
+
+              <button
+                type="submit"
+                disabled={status === "saving"}
+                className="flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-bold text-white disabled:opacity-50"
+                style={{ backgroundColor: BRAND.deepGreen }}
+              >
+                {status === "saving" ? "저장중..." : "비밀번호 변경"}
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -6473,6 +6609,9 @@ export default function GreenSyncApp() {
   const [activeSite, setActiveSite] = useState(() => loadSavedSession()?.activeSite || null);
   const [switchError, setSwitchError] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
+  // 본인이 직접 비밀번호를 바꿀 수 있는 메뉴(헤더) — 강제 변경 화면과는 별개로,
+  // 언제든 원할 때 현재 비밀번호를 확인하고 새 비밀번호로 바꿀 수 있게 한다.
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [popupNotification, setPopupNotification] = useState(null);
   const [routeSharePopup, setRouteSharePopup] = useState(null); // 34번 — 동선 추천 수락/거절 팝업
   const [siteSwitchToast, setSiteSwitchToast] = useState(null); // 근무지 전환 완료 안내(26번)
@@ -6670,7 +6809,17 @@ export default function GreenSyncApp() {
   // screen === "home" — activeSite(전환 가능)에 따라 창원/김해 화면으로 분기
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
-      <GlobalHeader employee={employee} activeSite={activeSite} onSwitchSite={handleSwitchSite} onLogout={handleLogout} onOpenNotifications={() => setShowNotifications(true)} />
+      <GlobalHeader
+        employee={employee}
+        activeSite={activeSite}
+        onSwitchSite={handleSwitchSite}
+        onLogout={handleLogout}
+        onOpenNotifications={() => setShowNotifications(true)}
+        onOpenPasswordChange={() => setShowPasswordChange(true)}
+      />
+      {showPasswordChange && (
+        <PasswordChangeModal employee={employee} onClose={() => setShowPasswordChange(false)} />
+      )}
       {switchError && (
         <p className="mx-auto max-w-3xl px-6 pt-3 text-xs font-semibold text-red-500">{switchError}</p>
       )}
