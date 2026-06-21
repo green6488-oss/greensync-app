@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 // 푸시 알림(FCM)용 — 이 프로젝트의 Vite 환경에 `npm install firebase`를 먼저
 // 실행해야 한다(별도 안내 참고).
 import { initializeApp } from "firebase/app";
-import { getMessaging, getToken, isSupported as isFcmSupported } from "firebase/messaging";
+import { getMessaging, getToken, onMessage, isSupported as isFcmSupported } from "firebase/messaging";
 import {
   UserCircle2,
   Lock,
@@ -424,6 +424,23 @@ async function setupPushNotifications(employeeId) {
     if (token) {
       await registerPushToken(employeeId, token);
     }
+
+    // 앱을 켜놓고 보는 중(포그라운드)일 때는 Firebase가 기본적으로 아무것도
+    // 화면에 띄워주지 않는다(백그라운드에서만 firebase-messaging-sw.js의
+    // onBackgroundMessage가 자동으로 알림을 띄움). 그래서 "앱을 보고 있을 때도
+    // 일반 앱처럼 상단 배너 알림이 뜨게 해달라"는 요청에 맞춰, 포그라운드에서도
+    // 직접 같은 서비스워커로 진짜 OS 알림(상단 배너)을 띄우도록 등록한다.
+    // (기존의 화면 중앙 팝업은 "요청"/"업체 긴급요청"에만 따로 쓰이는 별도
+    // 기능이라 그대로 두고, 이건 모든 푸시에 적용되는 배너를 추가하는 것이다.)
+    onMessage(messaging, (payload) => {
+      try {
+        const title = (payload.data && payload.data.title) || (payload.notification && payload.notification.title) || "그린산업(주)";
+        const body = (payload.data && payload.data.body) || (payload.notification && payload.notification.body) || "";
+        registration.showNotification(title, { body, icon: "/icon-192.png" });
+      } catch (err) {
+        // 배너 표시 실패는 무시 — 인앱 다른 알림 동작에는 영향 없음.
+      }
+    });
   } catch (err) {
     // 푸시 등록 실패는 조용히 무시 — 앱의 다른 기능에는 영향 없음.
   }
@@ -552,6 +569,36 @@ async function getMonthlyLedger(yearMonth) {
       inQty: row.in_qty,
       outQty: row.out_qty,
       closingStock: row.closing_stock,
+    })),
+  };
+}
+
+/** 월별 수불표(창원) "일자별로 보기"용 — "getMonthlyLedgerDaily" 액션. yearMonth는 "yyyy-MM" 형식. */
+async function getMonthlyLedgerDaily(yearMonth) {
+  const data = await callGasWebApp({ action: "getMonthlyLedgerDaily", year_month: yearMonth });
+  return {
+    yearMonth: data.year_month,
+    daysInMonth: data.days_in_month,
+    dayHeaders: (data.day_headers || []).map((h) => ({
+      day: h.day,
+      date: h.date,
+      weekday: h.weekday,
+      label: h.label,
+    })),
+    items: (data.items || []).map((row) => ({
+      partNo: row.part_no,
+      name: row.name,
+      lc: row.lc,
+      openingStock: row.opening_stock,
+      totalIn: row.total_in,
+      totalOut: row.total_out,
+      closingStock: row.closing_stock,
+      days: (row.days || []).map((d) => ({
+        day: d.day,
+        inQty: d.in_qty,
+        outQty: d.out_qty,
+        stock: d.stock,
+      })),
     })),
   };
 }
@@ -1533,20 +1580,33 @@ function NotificationScreen({ employee, onBack }) {
           {settingsStatus === "ready" && settings && SETTING_GROUPS.map((group) => (
             <div key={group.site} className="rounded-xl border border-slate-200 bg-white p-4">
               <p className="text-xs font-bold text-slate-400">{group.site}</p>
+              {group.site !== "통합" && settings.all_enabled === false && (
+                <p className="mt-1 text-[11px] font-semibold text-amber-600">전체 알림이 꺼져있어 아래 설정은 모두 꺼진 상태로 동작합니다.</p>
+              )}
               <div className="mt-2 space-y-2.5">
-                {group.items.map((item) => (
-                  <div key={item.key} className="flex items-center justify-between">
-                    <span className="text-sm text-slate-700">{item.label}</span>
-                    <button
-                      onClick={() => toggleSetting(item.key)}
-                      disabled={savingKey === item.key}
-                      className="relative h-6 w-11 flex-shrink-0 rounded-full bg-slate-200 transition-colors disabled:opacity-50"
-                      style={settings[item.key] ? { backgroundColor: BRAND.deepGreen } : {}}
-                    >
-                      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${settings[item.key] ? "left-5" : "left-0.5"}`} />
-                    </button>
-                  </div>
-                ))}
+                {group.items.map((item) => {
+                  // 전체 알림이 꺼져있으면(백엔드도 이 경우 분류별 설정과 무관하게
+                  // 전부 꺼진 것으로 처리한다) 개별 토글도 화면에서 꺼진 것처럼
+                  // 보여주고 조작은 막는다 — 실제 동작과 화면 표시가 다르면
+                  // 헷갈리기 때문(이전엔 전체 알림을 꺼도 아래 토글들이 그대로
+                  // 켜진 것처럼 보였던 문제).
+                  const isSubItem = item.key !== "all_enabled";
+                  const forcedOff = isSubItem && settings.all_enabled === false;
+                  const displayedOn = forcedOff ? false : settings[item.key];
+                  return (
+                    <div key={item.key} className="flex items-center justify-between">
+                      <span className={`text-sm ${forcedOff ? "text-slate-400" : "text-slate-700"}`}>{item.label}</span>
+                      <button
+                        onClick={() => toggleSetting(item.key)}
+                        disabled={savingKey === item.key || forcedOff}
+                        className="relative h-6 w-11 flex-shrink-0 rounded-full bg-slate-200 transition-colors disabled:opacity-50"
+                        style={displayedOn ? { backgroundColor: BRAND.deepGreen } : {}}
+                      >
+                        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${displayedOn ? "left-5" : "left-0.5"}`} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -2301,6 +2361,13 @@ function MonthlyLedgerScreen({ onBack }) {
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
 
+  // "일자별로 보기" — 방법1(기존처럼 개별 카드) / 방법2(사진처럼 표 형식)
+  const [viewMode, setViewMode] = useState("summary"); // "summary" | "daily"
+  const [dailyStyle, setDailyStyle] = useState("card"); // "card" | "table"
+  const [dailyData, setDailyData] = useState(null);
+  const [dailyStatus, setDailyStatus] = useState("idle");
+  const [dailyError, setDailyError] = useState("");
+
   const reload = async (month) => {
     setStatus("loading");
     try {
@@ -2313,7 +2380,29 @@ function MonthlyLedgerScreen({ onBack }) {
     }
   };
 
+  const reloadDaily = async (month) => {
+    setDailyStatus("loading");
+    try {
+      const data = await getMonthlyLedgerDaily(month);
+      setDailyData(data);
+      setDailyStatus("ready");
+    } catch (err) {
+      setDailyError(err.message || "일자별 수불표를 불러오지 못했습니다.");
+      setDailyStatus("error");
+    }
+  };
+
   useEffect(() => { reload(yearMonth); }, []);
+
+  const handleSearch = () => {
+    reload(yearMonth);
+    if (viewMode === "daily") reloadDaily(yearMonth);
+  };
+
+  const handleSelectDaily = () => {
+    setViewMode("daily");
+    if (!dailyData || dailyData.yearMonth !== yearMonth) reloadDaily(yearMonth);
+  };
 
   const filtered = items.filter((it) => {
     if (!query.trim()) return true;
@@ -2326,8 +2415,16 @@ function MonthlyLedgerScreen({ onBack }) {
     { inQty: 0, outQty: 0 }
   );
 
+  const dailyFiltered = (dailyData?.items || []).filter((it) => {
+    if (!query.trim()) return true;
+    const q = query.trim().toLowerCase();
+    return String(it.partNo).toLowerCase().includes(q) || String(it.name || "").toLowerCase().includes(q);
+  });
+
+  const wide = viewMode === "daily" && dailyStyle === "table";
+
   return (
-    <main className="mx-auto max-w-md px-6 py-8">
+    <main className={`mx-auto px-6 py-8 ${wide ? "max-w-5xl" : "max-w-md"}`}>
       <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">월별 수불표</h1>
       <p className="mt-1 text-sm text-slate-400">PART NO별 전월재고 + 입고 - 출고 = 당월재고 현황입니다.</p>
@@ -2335,7 +2432,7 @@ function MonthlyLedgerScreen({ onBack }) {
       <div className="mt-4 flex items-center gap-2">
         <input type="month" value={yearMonth} onChange={(e) => setYearMonth(e.target.value)}
           className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none" />
-        <button onClick={() => reload(yearMonth)} className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">
+        <button onClick={handleSearch} className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">
           <RefreshCw className="h-3.5 w-3.5" /> 조회
         </button>
       </div>
@@ -2346,66 +2443,248 @@ function MonthlyLedgerScreen({ onBack }) {
           className="w-full text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none" />
       </div>
 
-      {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
-      {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={() => setViewMode("summary")}
+          className="flex-1 rounded-lg border px-3 py-2 text-xs font-bold"
+          style={viewMode === "summary" ? { backgroundColor: BRAND.deepGreen, borderColor: BRAND.deepGreen, color: "#fff" } : { borderColor: "#e2e8f0", color: "#64748b" }}
+        >
+          월 합계 보기
+        </button>
+        <button
+          onClick={handleSelectDaily}
+          className="flex-1 rounded-lg border px-3 py-2 text-xs font-bold"
+          style={viewMode === "daily" ? { backgroundColor: BRAND.deepGreen, borderColor: BRAND.deepGreen, color: "#fff" } : { borderColor: "#e2e8f0", color: "#64748b" }}
+        >
+          일자별로 보기
+        </button>
+      </div>
 
-      {status === "ready" && (
+      {viewMode === "daily" && (
+        <div className="mt-2 flex gap-2">
+          <button
+            onClick={() => setDailyStyle("card")}
+            className={`flex-1 rounded-lg border px-3 py-1.5 text-[11px] font-bold ${dailyStyle === "card" ? "border-slate-700 text-slate-900" : "border-slate-200 text-slate-400"}`}
+          >
+            방법1 · 개별 카드
+          </button>
+          <button
+            onClick={() => setDailyStyle("table")}
+            className={`flex-1 rounded-lg border px-3 py-1.5 text-[11px] font-bold ${dailyStyle === "table" ? "border-slate-700 text-slate-900" : "border-slate-200 text-slate-400"}`}
+          >
+            방법2 · 표 형식
+          </button>
+        </div>
+      )}
+
+      {viewMode === "summary" && (
         <>
-          <div className="mt-4 grid grid-cols-2 gap-2 text-center">
-            <div className="rounded-xl border border-slate-200 bg-white p-3">
-              <p className="text-[11px] text-slate-400">이번 달 입고 합계</p>
-              <p className="mt-1 text-lg font-extrabold" style={{ color: BRAND.deepGreen }}>{totals.inQty.toLocaleString()}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-3">
-              <p className="text-[11px] text-slate-400">이번 달 출고 합계</p>
-              <p className="mt-1 text-lg font-extrabold text-slate-700">{totals.outQty.toLocaleString()}</p>
-            </div>
-          </div>
+          {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
+          {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
 
-          <div className="mt-3 space-y-2">
-            {filtered.length === 0 && <p className="py-8 text-center text-xs text-slate-400">해당 월에 표시할 자재가 없습니다.</p>}
-            {filtered.map((it) => {
-              const closingNegative = Number(it.closingStock) < 0;
-              return (
-                <div key={it.partNo} className="rounded-xl border border-slate-200 bg-white p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-bold text-slate-900">{it.partNo}{it.lc ? ` · ${it.lc}` : ""}</p>
-                      <p className="text-xs text-slate-400">{it.name || "(품명 미등록)"}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-slate-400">당월재고</p>
-                      <p className={`text-lg font-extrabold ${closingNegative ? "text-red-500" : ""}`} style={!closingNegative ? { color: BRAND.deepGreen } : {}}>
-                        {it.closingStock}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-2 grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-2 text-center">
-                    <div>
-                      <p className="text-[10px] text-slate-400">전월재고</p>
-                      <p className="text-xs font-bold text-slate-700">{it.openingStock}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-slate-400">입고</p>
-                      <p className="text-xs font-bold" style={{ color: BRAND.deepGreen }}>+{it.inQty}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-slate-400">출고</p>
-                      <p className="text-xs font-bold text-slate-700">-{it.outQty}</p>
-                    </div>
-                  </div>
-                  {closingNegative && (
-                    <p className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-red-500">
-                      <AlertTriangle className="h-3 w-3" /> 음수 재고 — 현장 확인 필요
-                    </p>
-                  )}
+          {status === "ready" && (
+            <>
+              <div className="mt-4 grid grid-cols-2 gap-2 text-center">
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <p className="text-[11px] text-slate-400">이번 달 입고 합계</p>
+                  <p className="mt-1 text-lg font-extrabold" style={{ color: BRAND.deepGreen }}>{totals.inQty.toLocaleString()}</p>
                 </div>
-              );
-            })}
-          </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <p className="text-[11px] text-slate-400">이번 달 출고 합계</p>
+                  <p className="mt-1 text-lg font-extrabold text-slate-700">{totals.outQty.toLocaleString()}</p>
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {filtered.length === 0 && <p className="py-8 text-center text-xs text-slate-400">해당 월에 표시할 자재가 없습니다.</p>}
+                {filtered.map((it) => {
+                  const closingNegative = Number(it.closingStock) < 0;
+                  return (
+                    <div key={it.partNo} className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{it.partNo}{it.lc ? ` · ${it.lc}` : ""}</p>
+                          <p className="text-xs text-slate-400">{it.name || "(품명 미등록)"}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-[10px] text-slate-400">당월재고</p>
+                          <p className={`text-lg font-extrabold ${closingNegative ? "text-red-500" : ""}`} style={!closingNegative ? { color: BRAND.deepGreen } : {}}>
+                            {it.closingStock}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-2 text-center">
+                        <div>
+                          <p className="text-[10px] text-slate-400">전월재고</p>
+                          <p className="text-xs font-bold text-slate-700">{it.openingStock}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400">입고</p>
+                          <p className="text-xs font-bold" style={{ color: BRAND.deepGreen }}>+{it.inQty}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400">출고</p>
+                          <p className="text-xs font-bold text-slate-700">-{it.outQty}</p>
+                        </div>
+                      </div>
+                      {closingNegative && (
+                        <p className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-red-500">
+                          <AlertTriangle className="h-3 w-3" /> 음수 재고 — 현장 확인 필요
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {viewMode === "daily" && (
+        <>
+          {dailyStatus === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
+          {dailyStatus === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{dailyError}</p>}
+          {dailyStatus === "ready" && dailyData && (
+            dailyStyle === "card"
+              ? <DailyLedgerCardList items={dailyFiltered} />
+              : <DailyLedgerTable items={dailyFiltered} dayHeaders={dailyData.dayHeaders} />
+          )}
         </>
       )}
     </main>
+  );
+}
+
+/**
+ * 월별 수불표 — "일자별로 보기" 방법1: PART NO별 카드 안에, 그 달에 입고/출고가
+ * 실제로 있었던 날짜만 한 줄씩 보여준다(0인 날은 표시하지 않음).
+ */
+function DailyLedgerCardList({ items }) {
+  if (!items || items.length === 0) {
+    return <p className="py-8 text-center text-xs text-slate-400">해당 월에 표시할 자재가 없습니다.</p>;
+  }
+
+  return (
+    <div className="mt-3 space-y-2">
+      {items.map((it) => {
+        const closingNegative = Number(it.closingStock) < 0;
+        const activeDays = (it.days || []).filter((d) => d.inQty !== 0 || d.outQty !== 0);
+        return (
+          <div key={it.partNo} className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-slate-900">{it.partNo}{it.lc ? ` · ${it.lc}` : ""}</p>
+                <p className="text-xs text-slate-400">{it.name || "(품명 미등록)"}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] text-slate-400">당월재고</p>
+                <p className={`text-lg font-extrabold ${closingNegative ? "text-red-500" : ""}`} style={!closingNegative ? { color: BRAND.deepGreen } : {}}>
+                  {it.closingStock}
+                </p>
+              </div>
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-400">
+              전월재고 {it.openingStock} · 입고합계 +{it.totalIn} · 출고합계 -{it.totalOut}
+            </p>
+
+            {activeDays.length === 0 ? (
+              <p className="mt-2 text-[11px] text-slate-300">이번 달 입출고 변동이 없습니다.</p>
+            ) : (
+              <div className="mt-2 space-y-1">
+                {activeDays.map((d) => {
+                  const stockNegative = Number(d.stock) < 0;
+                  return (
+                    <div key={d.day} className="flex items-center justify-between rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px]">
+                      <span className="font-semibold text-slate-600">{d.day}일</span>
+                      <span className="flex items-center gap-2">
+                        {d.inQty !== 0 && (
+                          <span className="font-bold" style={{ color: BRAND.deepGreen }}>입고 +{d.inQty}</span>
+                        )}
+                        {d.outQty !== 0 && <span className="font-bold text-slate-600">출고 -{d.outQty}</span>}
+                        <span className={`font-bold ${stockNegative ? "text-red-500" : "text-slate-400"}`}>재고 {d.stock}</span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * 월별 수불표 — "일자별로 보기" 방법2: 사진처럼 PART NO별 입고/출고/재고를
+ * 가로로 펼친 표. 값이 0인 셀은 빈 칸으로 비워 양수/음수 데이터만 보여준다.
+ * (재고가 전혀 없는 PART NO는 백엔드에서 이미 제외되어 내려온다.)
+ */
+function DailyLedgerTable({ items, dayHeaders }) {
+  if (!items || items.length === 0) {
+    return <p className="py-8 text-center text-xs text-slate-400">해당 월에 표시할 자재가 없습니다.</p>;
+  }
+
+  const fmtCell = (n) => (!n ? "" : Number(n).toLocaleString());
+  const fmtAlways = (n) => Number(n || 0).toLocaleString();
+
+  return (
+    <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200">
+      <table className="min-w-full border-collapse text-[11px]">
+        <thead>
+          <tr className="text-slate-500">
+            <th className="sticky left-0 z-10 min-w-[110px] border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-left">품목번호</th>
+            <th className="sticky left-[110px] z-10 min-w-[140px] border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-left">품목명</th>
+            <th className="min-w-[76px] border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-right">전월재고</th>
+            <th className="min-w-[46px] border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-center">항목</th>
+            {(dayHeaders || []).map((h) => (
+              <th key={h.day} className="min-w-[54px] whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-center">
+                {h.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((it) => {
+            const openingNegative = Number(it.openingStock) < 0;
+            const rows = [
+              { key: "in", label: "입고", values: (it.days || []).map((d) => d.inQty) },
+              { key: "out", label: "출고", values: (it.days || []).map((d) => d.outQty) },
+              { key: "stock", label: "재고", values: (it.days || []).map((d) => d.stock) },
+            ];
+            return rows.map((row, rowIdx) => (
+              <tr key={`${it.partNo}-${row.key}`} className={row.key === "stock" ? "bg-rose-50" : "bg-white"}>
+                {rowIdx === 0 && (
+                  <td rowSpan={3} className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-2 py-1.5 align-top font-bold text-slate-800">
+                    {it.partNo}
+                  </td>
+                )}
+                {rowIdx === 0 && (
+                  <td rowSpan={3} className="sticky left-[110px] z-10 border-b border-r border-slate-200 bg-white px-2 py-1.5 align-top text-slate-600">
+                    {it.name || "(품명 미등록)"}{it.lc ? <span className="block text-[10px] text-slate-400">{it.lc}</span> : null}
+                  </td>
+                )}
+                {rowIdx === 0 && (
+                  <td rowSpan={3} className={`border-b border-r border-slate-200 px-2 py-1.5 text-right align-top font-bold ${openingNegative ? "text-red-500" : "text-slate-700"}`}>
+                    {fmtAlways(it.openingStock)}
+                  </td>
+                )}
+                <td className="border-b border-r border-slate-200 px-2 py-1.5 text-center font-semibold text-slate-500">{row.label}</td>
+                {row.values.map((v, idx) => {
+                  const isNegative = Number(v) < 0;
+                  return (
+                    <td key={idx} className={`border-b border-r border-slate-200 px-2 py-1.5 text-right ${isNegative ? "font-bold text-red-500" : "text-slate-600"}`}>
+                      {fmtCell(v)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ));
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
