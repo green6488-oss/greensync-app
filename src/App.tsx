@@ -3939,7 +3939,14 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
   };
 
   const handleAnalyze = async () => {
-    if (selectedIds.length < 2) {
+    // 어떤 경로로든(향후 새 기능 추가 등) selectedIds에 같은 거래처가 중복으로
+    // 들어가는 일이 다시 생기더라도, 분석을 보내기 직전에 한 번 더 중복을 걸러
+    // "같은 거래처가 동선에 두 번 잡히는" 문제가 재발하지 않도록 한다.
+    const uniqueSelectedIds = [...new Set(selectedIds)];
+    if (uniqueSelectedIds.length !== selectedIds.length) {
+      setSelectedIds(uniqueSelectedIds);
+    }
+    if (uniqueSelectedIds.length < 2) {
       setAnalyzeError("거래처를 2곳 이상 선택해주세요.");
       return;
     }
@@ -3952,7 +3959,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
       // 거부, PC 환경 등) 서버가 자동으로 김해공장 주소를 출발지로 대체해 계산한다.
       const position = await getCurrentPosition();
       const origin = position.error ? null : { lat: position.lat, lng: position.lng };
-      const data = await optimizeGimhaeRoute(employee.employeeId, selectedIds, origin);
+      const data = await optimizeGimhaeRoute(employee.employeeId, uniqueSelectedIds, origin);
       setResult(data);
     } catch (err) {
       setAnalyzeError(err.message || "동선 분석 중 오류가 발생했습니다.");
@@ -4001,7 +4008,11 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
   const handleAddGeneralGroupToRoute = async (group) => {
     setStaleNotice("");
     const { pendingIds } = await getFreshValidCustomerIds();
-    const candidateIds = group.stops.map((s) => s.customerId);
+    // 같은 거래처가 group.stops에 중복으로 들어있으면 selectedIds에도 그대로 중복
+    // 반영돼, 실제로는 3곳인데 "5곳"처럼 카운트/순서비교에 같은 거래처가 두 번
+    // 나오는 문제가 있었다. Set으로 한 번 더 걸러 거래처ID가 항상 한 번씩만
+    // 들어가도록 한다(바로 위 개인화 추천 버전과 동일하게 맞춤).
+    const candidateIds = [...new Set(group.stops.map((s) => s.customerId))];
     const validIds = candidateIds.filter((id) => pendingIds.has(id));
     if (validIds.length < candidateIds.length) {
       setStaleNotice("이미 처리되었거나 상태가 바뀐 거래처는 제외하고 담았습니다.");
