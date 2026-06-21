@@ -2622,6 +2622,8 @@ function DailyLedgerCardList({ items }) {
  * (재고가 전혀 없는 PART NO는 백엔드에서 이미 제외되어 내려온다.)
  */
 function DailyLedgerTable({ items, dayHeaders }) {
+  const [showName, setShowName] = useState(true);
+
   if (!items || items.length === 0) {
     return <p className="py-8 text-center text-xs text-slate-400">해당 월에 표시할 자재가 없습니다.</p>;
   }
@@ -2629,61 +2631,125 @@ function DailyLedgerTable({ items, dayHeaders }) {
   const fmtCell = (n) => (!n ? "" : Number(n).toLocaleString());
   const fmtAlways = (n) => Number(n || 0).toLocaleString();
 
+  // 왼쪽에 고정(sticky)할 열들의 너비(px). 품목명을 숨기면 그만큼 오른쪽 열들이 당겨진다.
+  const PART_NO_W = 100;
+  const NAME_W = 130;
+  const OPENING_W = 70;
+  const ITEM_W = 44;
+
+  const leftPartNo = 0;
+  const leftName = leftPartNo + PART_NO_W;
+  const leftOpening = leftName + (showName ? NAME_W : 0);
+  const leftItem = leftOpening + OPENING_W;
+  const stickyTotalWidth = leftItem + ITEM_W;
+
+  const stickyCellStyle = (left, extra) => ({ position: "sticky", left, zIndex: 10, ...extra });
+
   return (
-    <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200">
-      <table className="min-w-full border-collapse text-[11px]">
-        <thead>
-          <tr className="text-slate-500">
-            <th className="sticky left-0 z-10 min-w-[110px] border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-left">품목번호</th>
-            <th className="sticky left-[110px] z-10 min-w-[140px] border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-left">품목명</th>
-            <th className="min-w-[76px] border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-right">전월재고</th>
-            <th className="min-w-[46px] border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-center">항목</th>
-            {(dayHeaders || []).map((h) => (
-              <th key={h.day} className="min-w-[54px] whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-center">
-                {h.label}
+    <div>
+      <div className="mt-3 flex justify-end">
+        <button
+          onClick={() => setShowName((v) => !v)}
+          className="rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-bold text-slate-500"
+        >
+          {showName ? "품목명 숨기기" : "품목명 보이기"}
+        </button>
+      </div>
+
+      <div className="mt-2 overflow-x-auto rounded-xl border border-slate-200">
+        <table className="border-collapse text-[11px]" style={{ minWidth: "100%" }}>
+          <thead>
+            <tr className="text-slate-500">
+              <th
+                className="border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-left"
+                style={{ ...stickyCellStyle(leftPartNo), minWidth: PART_NO_W, width: PART_NO_W }}
+              >
+                품목번호
               </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((it) => {
-            const openingNegative = Number(it.openingStock) < 0;
-            const rows = [
-              { key: "in", label: "입고", values: (it.days || []).map((d) => d.inQty) },
-              { key: "out", label: "출고", values: (it.days || []).map((d) => d.outQty) },
-              { key: "stock", label: "재고", values: (it.days || []).map((d) => d.stock) },
-            ];
-            return rows.map((row, rowIdx) => (
-              <tr key={`${it.partNo}-${row.key}`} className={row.key === "stock" ? "bg-rose-50" : "bg-white"}>
-                {rowIdx === 0 && (
-                  <td rowSpan={3} className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-2 py-1.5 align-top font-bold text-slate-800">
-                    {it.partNo}
-                  </td>
-                )}
-                {rowIdx === 0 && (
-                  <td rowSpan={3} className="sticky left-[110px] z-10 border-b border-r border-slate-200 bg-white px-2 py-1.5 align-top text-slate-600">
-                    {it.name || "(품명 미등록)"}{it.lc ? <span className="block text-[10px] text-slate-400">{it.lc}</span> : null}
-                  </td>
-                )}
-                {rowIdx === 0 && (
-                  <td rowSpan={3} className={`border-b border-r border-slate-200 px-2 py-1.5 text-right align-top font-bold ${openingNegative ? "text-red-500" : "text-slate-700"}`}>
-                    {fmtAlways(it.openingStock)}
-                  </td>
-                )}
-                <td className="border-b border-r border-slate-200 px-2 py-1.5 text-center font-semibold text-slate-500">{row.label}</td>
-                {row.values.map((v, idx) => {
-                  const isNegative = Number(v) < 0;
-                  return (
-                    <td key={idx} className={`border-b border-r border-slate-200 px-2 py-1.5 text-right ${isNegative ? "font-bold text-red-500" : "text-slate-600"}`}>
-                      {fmtCell(v)}
+              {showName && (
+                <th
+                  className="border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-left"
+                  style={{ ...stickyCellStyle(leftName), minWidth: NAME_W, width: NAME_W }}
+                >
+                  품목명
+                </th>
+              )}
+              <th
+                className="border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-right"
+                style={{ ...stickyCellStyle(leftOpening), minWidth: OPENING_W, width: OPENING_W }}
+              >
+                전월재고
+              </th>
+              <th
+                className="border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-center"
+                style={{ ...stickyCellStyle(leftItem), minWidth: ITEM_W, width: ITEM_W, borderRight: "2px solid #cbd5e1" }}
+              >
+                항목
+              </th>
+              {(dayHeaders || []).map((h) => (
+                <th key={h.day} className="min-w-[64px] whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-center">
+                  {h.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((it) => {
+              const openingNegative = Number(it.openingStock) < 0;
+              const rows = [
+                { key: "in", label: "입고", values: (it.days || []).map((d) => d.inQty) },
+                { key: "out", label: "출고", values: (it.days || []).map((d) => d.outQty) },
+                { key: "stock", label: "재고", values: (it.days || []).map((d) => d.stock) },
+              ];
+              return rows.map((row, rowIdx) => (
+                <tr key={`${it.partNo}-${row.key}`} className={row.key === "stock" ? "bg-rose-50" : "bg-white"}>
+                  {rowIdx === 0 && (
+                    <td
+                      rowSpan={3}
+                      className="border-b border-r border-slate-200 bg-white px-2 py-1.5 align-top font-bold text-slate-800"
+                      style={stickyCellStyle(leftPartNo, { backgroundColor: "#fff" })}
+                    >
+                      {it.partNo}
                     </td>
-                  );
-                })}
-              </tr>
-            ));
-          })}
-        </tbody>
-      </table>
+                  )}
+                  {rowIdx === 0 && showName && (
+                    <td
+                      rowSpan={3}
+                      className="border-b border-r border-slate-200 bg-white px-2 py-1.5 align-top text-slate-600"
+                      style={stickyCellStyle(leftName, { backgroundColor: "#fff" })}
+                    >
+                      {it.name || "(품명 미등록)"}{it.lc ? <span className="block text-[10px] text-slate-400">{it.lc}</span> : null}
+                    </td>
+                  )}
+                  {rowIdx === 0 && (
+                    <td
+                      rowSpan={3}
+                      className={`border-b border-r border-slate-200 px-2 py-1.5 text-right align-top font-bold ${openingNegative ? "text-red-500" : "text-slate-700"}`}
+                      style={stickyCellStyle(leftOpening, { backgroundColor: "#fff" })}
+                    >
+                      {fmtAlways(it.openingStock)}
+                    </td>
+                  )}
+                  <td
+                    className="border-b border-r border-slate-200 px-2 py-1.5 text-center font-semibold text-slate-500"
+                    style={stickyCellStyle(leftItem, { backgroundColor: row.key === "stock" ? "#fff1f2" : "#fff", borderRight: "2px solid #cbd5e1" })}
+                  >
+                    {row.label}
+                  </td>
+                  {row.values.map((v, idx) => {
+                    const isNegative = Number(v) < 0;
+                    return (
+                      <td key={idx} className={`border-b border-r border-slate-200 px-2 py-1.5 text-right ${isNegative ? "font-bold text-red-500" : "text-slate-600"}`}>
+                        {fmtCell(v)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ));
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
