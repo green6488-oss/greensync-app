@@ -995,6 +995,9 @@ function buildRouteMapUrl(stops) {
  * 49번 요청으로, 화면에서 확인/수정한 출발지 주소(origin.address)와 호출 시점의
  * 실제 GPS(origin.currentLat/currentLng)를 같이 보내면, 서버가 그 주소를 좌표로
  * 바꿔 현재 위치와 3km 이내인지 확인한 뒤에만 출발 등록을 해준다(벗어나면 실패).
+ * 50번 요청 — 업체명 추천 목록에서 골랐다면 그 좌표(origin.lat/lng)도 같이
+ * 보낸다. 그러면 서버가 주소를 다시 지오코딩하지 않고 그 좌표를 그대로 쓴다
+ * (업체명은 구글 지오코더가 잘 못 찾는 경우가 많아, 검색 결과 좌표가 더 정확하다).
  */
 async function markGimhaeDeparted(actorEmployeeId, dispatchId, origin) {
   const data = await callGasWebApp({
@@ -1002,6 +1005,8 @@ async function markGimhaeDeparted(actorEmployeeId, dispatchId, origin) {
     actor_employee_id: actorEmployeeId,
     dispatch_id: dispatchId,
     origin_address: origin ? origin.address : undefined,
+    origin_lat: origin && origin.lat != null ? origin.lat : undefined,
+    origin_lng: origin && origin.lng != null ? origin.lng : undefined,
     current_lat: origin ? origin.currentLat : undefined,
     current_lng: origin ? origin.currentLng : undefined,
   });
@@ -1013,6 +1018,29 @@ async function markGimhaeDeparted(actorEmployeeId, dispatchId, origin) {
     originLat: data.origin_lat,
     originLng: data.origin_lng,
   };
+}
+
+/**
+ * "출발지" 입력칸의 업체명 검색(50번 요청) — "searchGimhaePlaceKeyword" 액션.
+ * "투썸플레이스"처럼 업체명만 입력해도, 기준 좌표(bias) 근처의 동일/유사 이름
+ * 지점들을 가까운 순서로 추천해준다(예: "투썸플레이스 마산역점", "투썸플레이스
+ * 산호천점"). bias를 안 주면 서버가 창원·마산·김해 권역 전체를 기준으로 찾는다.
+ */
+async function searchGimhaePlaceKeyword(actorEmployeeId, keyword, bias) {
+  const data = await callGasWebApp({
+    action: "searchGimhaePlaceKeyword",
+    actor_employee_id: actorEmployeeId,
+    keyword,
+    bias_lat: bias ? bias.lat : undefined,
+    bias_lng: bias ? bias.lng : undefined,
+  });
+  return (data.places || []).map((p) => ({
+    name: p.name,
+    address: p.address,
+    lat: p.lat,
+    lng: p.lng,
+    distanceMeters: p.distance_meters,
+  }));
 }
 
 /**
@@ -4536,6 +4564,114 @@ function GimhaeAcceptForm({ vehicles, submitting, onSubmit, onCancel }) {
   );
 }
 
+/**
+ * 출발지 입력칸 — 업체명/장소명 자동완성(50번 요청).
+ * "투썸플레이스"처럼 업체명만 입력해도, 근처(기준 좌표) 지점들을 추천 목록으로
+ * 보여준다(예: "투썸플레이스 마산역점", "투썸플레이스 산호천점"). 추천 목록에서
+ * 고르면 그 지점의 좌표까지 함께 확정되고, 추천 없이 직접 입력만 해도 그 텍스트
+ * 그대로 출발지 주소로 쓸 수 있다(이 경우 좌표는 서버가 지오코딩으로 채운다).
+ *
+ * 기준 좌표(검색 중심)는 이 입력칸을 처음 사용할 때 현재 GPS를 한 번 받아서
+ * 쓴다(현재 있는 곳 근처를 찾는 게 목적이므로) — GPS를 못 받으면 기본 출발지
+ * 좌표로, 그것도 없으면 서버가 창원·마산·김해 권역 전체를 기준으로 찾는다.
+ */
+function OriginPlaceInput({ employeeId, value, defaultOrigin, onChange }) {
+  const [query, setQuery] = useState(() => (value ? value.address : defaultOrigin ? defaultOrigin.address : ""));
+  const [suggestions, setSuggestions] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const debounceRef = useRef(null);
+  const blurTimerRef = useRef(null);
+  const biasRef = useRef(null); // 현재 GPS(있으면)를 한 번만 받아서 검색 기준으로 재사용
+
+  // 사용자가 아직 이 입력칸을 직접 건드리지 않았는데 defaultOrigin이 나중에
+  // (비동기로) 도착하면, 화면 표시값도 같이 갱신해준다.
+  useEffect(() => {
+    if (value == null && defaultOrigin) setQuery(defaultOrigin.address || "");
+  }, [defaultOrigin, value]);
+
+  const ensureBias = async () => {
+    if (biasRef.current) return biasRef.current;
+    const pos = await getCurrentPosition();
+    if (!pos.error) {
+      biasRef.current = { lat: pos.lat, lng: pos.lng };
+    } else if (defaultOrigin && defaultOrigin.lat != null) {
+      biasRef.current = { lat: defaultOrigin.lat, lng: defaultOrigin.lng };
+    }
+    return biasRef.current;
+  };
+
+  const runSearch = (text) => {
+    clearTimeout(debounceRef.current);
+    if (!text || text.trim().length < 2) {
+      setSuggestions([]);
+      setOpen(false);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const bias = await ensureBias();
+        const results = await searchGimhaePlaceKeyword(employeeId, text.trim(), bias);
+        setSuggestions(results);
+        setOpen(results.length > 0);
+      } catch (err) {
+        // 추천 검색이 실패해도 직접 입력은 계속할 수 있어야 하니 조용히 무시한다.
+      } finally {
+        setSearching(false);
+      }
+    }, 350);
+  };
+
+  const handleChange = (e) => {
+    const text = e.target.value;
+    setQuery(text);
+    // 타이핑 중엔 좌표를 모르니 비워둔다 — 그대로 등록하면 서버가 이 텍스트를 지오코딩한다.
+    onChange({ address: text, lat: null, lng: null });
+    runSearch(text);
+  };
+
+  const pick = (place) => {
+    setQuery(place.name);
+    setOpen(false);
+    setSuggestions([]);
+    onChange({ address: place.name, lat: place.lat, lng: place.lng });
+  };
+
+  return (
+    <div className="relative">
+      <input
+        value={query}
+        onChange={handleChange}
+        onFocus={() => { ensureBias(); if (suggestions.length > 0) setOpen(true); }}
+        onBlur={() => { blurTimerRef.current = setTimeout(() => setOpen(false), 150); }}
+        placeholder="업체명 또는 주소 (예: 투썸플레이스)"
+        className="mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-2 pr-7 text-xs text-slate-800 placeholder:text-slate-300 focus:outline-none"
+      />
+      {searching && <Loader2 className="absolute right-2.5 top-1/2 h-3 w-3 -translate-y-1/2 animate-spin text-slate-300" />}
+
+      {open && suggestions.length > 0 && (
+        <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+          {suggestions.map((p, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onMouseDown={() => clearTimeout(blurTimerRef.current)}
+              onClick={() => pick(p)}
+              className="block w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
+            >
+              <span className="block text-xs font-semibold text-slate-800">{p.name}</span>
+              <span className="block text-[10px] text-slate-400">
+                {p.address}{p.distanceMeters != null ? ` · ${(p.distanceMeters / 1000).toFixed(1)}km` : ""}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // 김해 — 오늘일정 화면. "제로 클릭 타임 트래킹" 구현부.
 //   - 대기중(아직 아무도 안 받음) → "수락"을 누르면 납품중으로 바뀐다(35번 요청).
@@ -4566,8 +4702,11 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
   // defaultOrigin: 서버가 정해주는 출발지 기본값(오늘 직전에 완료한 곳, 없으면
   // 김해공장). 화면에 입력칸을 새로 그릴 때마다 이 값으로 미리 채워준다.
   const [defaultOrigin, setDefaultOrigin] = useState(null);
-  // originDrafts: 항목별로 사용자가 직접 수정한 출발지 주소(수정 안 하면 위
-  // defaultOrigin.address를 그대로 쓴다).
+  // originDrafts: 항목별로 사용자가 직접 입력/선택한 출발지 — { address, lat, lng }.
+  // 50번 요청 — 업체명 추천 목록에서 고른 경우 lat/lng가 같이 채워지고(검색
+  // 결과 좌표를 그대로 씀), 직접 타이핑만 한 경우엔 lat/lng가 비어있어 서버가
+  // 주소를 다시 지오코딩한다. 아직 아예 손대지 않은 항목은 키 자체가 없어서
+  // defaultOrigin을 그대로 쓴다.
   const [originDrafts, setOriginDrafts] = useState({});
   // 완료 처리 후 "추가 일정이 있으신가요?" 안내를 띄울지 여부.
   const [showMoreScheduleAsk, setShowMoreScheduleAsk] = useState(false);
@@ -4581,8 +4720,16 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
     }
   };
 
-  const originAddressFor = (dispatchId) =>
-    originDrafts[dispatchId] != null ? originDrafts[dispatchId] : (defaultOrigin ? defaultOrigin.address : "");
+  // 출발 등록(markGimhaeDeparted) 호출에 실어 보낼 {address, lat, lng}를 정한다.
+  // 사용자가 추천 목록에서 고른 경우(또는 아직 안 건드려서 기본값을 그대로 쓰는
+  // 경우)엔 이미 알고 있는 좌표를 같이 보내고, 직접 타이핑만 한 경우엔 좌표 없이
+  // 주소 텍스트만 보낸다(서버가 지오코딩).
+  const originPayloadFor = (dispatchId) => {
+    const draft = originDrafts[dispatchId];
+    if (draft) return { address: draft.address, lat: draft.lat, lng: draft.lng };
+    if (defaultOrigin) return { address: defaultOrigin.address, lat: defaultOrigin.lat, lng: defaultOrigin.lng };
+    return { address: "", lat: null, lng: null };
+  };
 
   const reload = async () => {
     setStatus("loading");
@@ -4644,7 +4791,7 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
           return;
         }
         await markGimhaeDeparted(employee.employeeId, item.dispatchId, {
-          address: originAddressFor(item.dispatchId),
+          ...originPayloadFor(item.dispatchId),
           currentLat: pos.lat,
           currentLng: pos.lng,
         });
@@ -4819,18 +4966,18 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                         {!item.departedAt ? (
                           <div className="mt-3 rounded-lg bg-slate-50 p-3">
                             <label className="text-[11px] font-semibold text-slate-500">출발지</label>
-                            <input
-                              value={originAddressFor(item.dispatchId)}
-                              onChange={(e) => setOriginDrafts((prev) => ({ ...prev, [item.dispatchId]: e.target.value }))}
-                              placeholder="출발지 주소"
-                              className="mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-2 text-xs text-slate-800 placeholder:text-slate-300 focus:outline-none"
+                            <OriginPlaceInput
+                              employeeId={employee.employeeId}
+                              value={originDrafts[item.dispatchId] || null}
+                              defaultOrigin={defaultOrigin}
+                              onChange={(next) => setOriginDrafts((prev) => ({ ...prev, [item.dispatchId]: next }))}
                             />
                             <p className="mt-1 text-[10px] text-slate-400">
                               {defaultOrigin
                                 ? defaultOrigin.source === "previous_arrival"
-                                  ? `직전 도착지(${defaultOrigin.label})로 기본 설정됨 · 직접 수정 가능`
-                                  : "그린산업 김해공장으로 기본 설정됨 · 직접 수정 가능"
-                                : "기본값을 불러오는 중... · 직접 수정 가능"}
+                                  ? `직전 도착지(${defaultOrigin.label})로 기본 설정됨 · 업체명으로 검색해 변경 가능`
+                                  : "그린산업 김해공장으로 기본 설정됨 · 업체명으로 검색해 변경 가능"
+                                : "기본값을 불러오는 중... · 업체명으로 검색해 변경 가능"}
                             </p>
                           </div>
                         ) : (
