@@ -105,6 +105,10 @@ const SITE_SWITCHABLE_ROLES = ["관리자", "지원"];
 // 이번 요청은 그 우회를 없애고 강하게 막는 것이 핵심이다).
 // ────────────────────────────────────────────────────────────────────────
 const GEOFENCE_RADIUS_METERS = 3000;
+// 51번 요청 — 3km(하드 차단) 전에 미리 알려주는 경고 임계값. 도착지에서 이
+// 거리(1.5km)를 넘어서면 아직 등록은 막지 않지만 "점점 멀어지고 있다"는 주의
+// 알림을 보여준다. GEOFENCE_RADIUS_METERS의 절반으로 잡았다.
+const GEOFENCE_WARNING_METERS = 1500;
 
 /** 두 좌표 사이의 거리를 미터 단위로 계산 (Haversine formula). */
 function distanceInMeters(lat1, lng1, lat2, lng2) {
@@ -3174,6 +3178,16 @@ function MaterialRegisterScreen({ employee, onBack }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(null);
+  // 50번 요청 — 자재등록도 입출고 등록과 똑같이 바코드 스캔으로 PART NO를 채울 수 있게 한다.
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  // 바코드를 스캔하면 PART NO 칸에 채우고 모달은 바로 닫는다. 입출고 등록처럼
+  // 즉시 다른 동작(조회 등)을 실행할 필요는 없고, 사용자가 나머지 칸(품명/L,C/
+  // 사업부/보관위치)을 이어서 입력하면 된다.
+  const handleScanResult = (text) => {
+    setPartNo(String(text).toUpperCase());
+    setScannerOpen(false);
+  };
 
   // 층수를 바꾸면 이전 층 도면에 찍었던 핀은 의미가 없으므로 좌표를 초기화한다.
   const handleFloorChange = (f) => {
@@ -3229,8 +3243,25 @@ function MaterialRegisterScreen({ employee, onBack }) {
       <form onSubmit={handleSubmit} className="mt-5 space-y-4">
         <div>
           <label className="text-xs font-semibold text-slate-500">PART NO *</label>
-          <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+          <div className="mt-1.5 flex items-center gap-2">
+            <input
+              value={partNo}
+              onChange={(e) => setPartNo(e.target.value.toUpperCase())}
+              placeholder="바코드 스캔 또는 직접 입력"
+              disabled={submitting}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+            />
+            <button
+              type="button"
+              onClick={() => setScannerOpen(true)}
+              disabled={submitting}
+              className="flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-lg text-white disabled:opacity-50"
+              style={{ backgroundColor: BRAND.deepGreen }}
+              title="바코드 스캔"
+            >
+              <ScanLine className="h-5 w-5" />
+            </button>
+          </div>
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500">품명</label>
@@ -3294,6 +3325,8 @@ function MaterialRegisterScreen({ employee, onBack }) {
           {submitting ? "등록중..." : "자재 등록"}
         </button>
       </form>
+
+      {scannerOpen && <BarcodeScannerModal onScan={handleScanResult} onClose={() => setScannerOpen(false)} />}
     </main>
   );
 }
@@ -3859,6 +3892,9 @@ function CompletionReportModal({ item, customer, onClose, onSubmit }) {
   }, [customer]);
 
   const outOfFence = distance != null && distance > GEOFENCE_RADIUS_METERS;
+  // 51번 요청 — 3km(하드 차단) 전에 1.5km 지점에서 미리 "점점 멀어지고 있다"는
+  // 주의 알림을 보여준다. 이 단계는 제출을 막지는 않는다(차단은 3km부터).
+  const nearWarning = !outOfFence && distance != null && distance > GEOFENCE_WARNING_METERS;
 
   // 49번 요청 — 반경을 벗어났을 때 "그래도 제출" 같은 우회 수단을 없앴다.
   // 화면에서 막아도 서버(handleCompleteGimhaeSchedule)에서도 같은 반경으로 다시
@@ -3893,21 +3929,25 @@ function CompletionReportModal({ item, customer, onClose, onSubmit }) {
         </div>
         <p className="mt-0.5 text-xs text-slate-400">{item.customerName} · {item.taskDescription}</p>
 
-        {/* GPS 지오펜싱 상태 표시 */}
-        <div className={`mt-4 flex items-start gap-2.5 rounded-xl p-3 ${outOfFence ? "bg-red-50" : "bg-slate-50"}`}>
+        {/* GPS 지오펜싱 상태 표시 — 정상(반경 안) / 주의(1.5km~3km) / 차단(3km 초과) 3단계 */}
+        <div className={`mt-4 flex items-start gap-2.5 rounded-xl p-3 ${outOfFence ? "bg-red-50" : nearWarning ? "bg-amber-50" : "bg-slate-50"}`}>
           {gpsStatus === "locating" ? (
             <Loader2 className="mt-0.5 h-4 w-4 animate-spin text-slate-400" />
           ) : (
-            <Crosshair className="mt-0.5 h-4 w-4" style={{ color: outOfFence ? "#dc2626" : BRAND.deepGreen }} />
+            <Crosshair className="mt-0.5 h-4 w-4" style={{ color: outOfFence ? "#dc2626" : nearWarning ? "#d97706" : BRAND.deepGreen }} />
           )}
           <div className="text-xs">
             {gpsStatus === "locating" && <p className="text-slate-500">현재 위치를 확인하는 중...</p>}
             {gpsStatus === "unavailable" && <p className="text-slate-500">위치 확인이 불가능합니다(권한 거부 또는 미지원). 지오펜싱 검사 없이 제출됩니다.</p>}
             {gpsStatus === "ok" && distance == null && <p className="text-slate-500">위치 확인됨. 이 거래처는 좌표가 등록되지 않아 거리 비교를 할 수 없습니다.</p>}
             {gpsStatus === "ok" && distance != null && (
-              <p className={outOfFence ? "font-semibold text-red-700" : "text-slate-600"}>
+              <p className={outOfFence ? "font-semibold text-red-700" : nearWarning ? "font-semibold text-amber-700" : "text-slate-600"}>
                 목적지와의 거리: 약 {Math.round(distance)}m
-                {outOfFence ? ` — 반경 ${GEOFENCE_RADIUS_METERS}m를 벗어나 제출할 수 없습니다` : " (반경 안)"}
+                {outOfFence
+                  ? ` — 반경 ${GEOFENCE_RADIUS_METERS}m를 벗어나 제출할 수 없습니다`
+                  : nearWarning
+                  ? ` — 주의: 도착지에서 점점 멀어지고 있습니다(${GEOFENCE_RADIUS_METERS}m 벗어나면 제출 불가)`
+                  : " (반경 안)"}
               </p>
             )}
           </div>
