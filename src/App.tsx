@@ -3,6 +3,9 @@ import { useState, useEffect, useRef } from "react";
 // 실행해야 한다(별도 안내 참고).
 import { initializeApp } from "firebase/app";
 import { getMessaging, getToken, onMessage, isSupported as isFcmSupported } from "firebase/messaging";
+// 월별 수불표 "엑셀로 내보내기"용 — 이 프로젝트의 Vite 환경에 `npm install xlsx`를
+// 먼저 실행해야 한다(SheetJS, 브라우저에서 바로 .xlsx 파일을 만들어 다운로드해준다).
+import * as XLSX from "xlsx";
 import {
   UserCircle2,
   Lock,
@@ -38,6 +41,7 @@ import {
   Layers,
   TrendingDown,
   Send,
+  Download,
   Bell,
   Megaphone,
   Phone,
@@ -93,11 +97,14 @@ function isElevatedRole(role) {
 const SITE_SWITCHABLE_ROLES = ["관리자", "지원"];
 
 // ────────────────────────────────────────────────────────────────────────
-// GPS 지오펜싱 — 완료 보고 제출 시점의 실제 위치와 거래처 좌표 사이의
-// 거리를 계산해, 반경 안에 있는지 판정한다. PRD 7번 항목의 "목적지 반경
-// 1km 이탈" 기준을 그대로 사용한다.
+// GPS 지오펜싱 — "출발"/"완료" 등록 시점의 실제 위치와 출발지·도착지(거래처)
+// 좌표 사이의 거리를 계산해, 반경 안에 있는지 판정한다. 49번 요청으로 기존
+// 1km에서 3km로 넓혔다(까먹고 한참 뒤에 누르는 것만 잡아내려는 목적이라,
+// 너무 좁으면 주차 위치/GPS 오차만으로도 자꾸 걸린다) — 단, 반경을 벗어나면
+// 예외 없이 등록 자체를 막는다(이전엔 "그래도 제출" 체크박스로 우회 가능했는데,
+// 이번 요청은 그 우회를 없애고 강하게 막는 것이 핵심이다).
 // ────────────────────────────────────────────────────────────────────────
-const GEOFENCE_RADIUS_METERS = 1000;
+const GEOFENCE_RADIUS_METERS = 3000;
 
 /** 두 좌표 사이의 거리를 미터 단위로 계산 (Haversine formula). */
 function distanceInMeters(lat1, lng1, lat2, lng2) {
@@ -925,6 +932,9 @@ async function listGimhaeSchedule() {
     assignedVehicle: row.assigned_vehicle,
     assignedVehicleType: row.assigned_vehicle_type,
     registeredAt: row.registered_at,
+    originAddress: row.origin_address,
+    originLat: row.origin_lat,
+    originLng: row.origin_lng,
   }));
 }
 
@@ -981,16 +991,39 @@ function buildRouteMapUrl(stops) {
 }
 
 /**
- * 제로 클릭 타임 트래킹 — "카카오내비로 길찾기" 버튼을 누르는 순간 호출.
- * 기사가 별도 "출발" 버튼을 누르지 않아도 이 한 번의 호출로 출발시각이 자동 기록된다.
+ * 제로 클릭 타임 트래킹 — "카카오내비로 길찾기"(=출발) 버튼을 누르는 순간 호출.
+ * 49번 요청으로, 화면에서 확인/수정한 출발지 주소(origin.address)와 호출 시점의
+ * 실제 GPS(origin.currentLat/currentLng)를 같이 보내면, 서버가 그 주소를 좌표로
+ * 바꿔 현재 위치와 3km 이내인지 확인한 뒤에만 출발 등록을 해준다(벗어나면 실패).
  */
-async function markGimhaeDeparted(actorEmployeeId, dispatchId) {
+async function markGimhaeDeparted(actorEmployeeId, dispatchId, origin) {
   const data = await callGasWebApp({
     action: "markGimhaeDeparted",
     actor_employee_id: actorEmployeeId,
     dispatch_id: dispatchId,
+    origin_address: origin ? origin.address : undefined,
+    current_lat: origin ? origin.currentLat : undefined,
+    current_lng: origin ? origin.currentLng : undefined,
   });
-  return { dispatchId: data.dispatch_id, departedAt: data.departed_at, alreadyMarked: data.already_marked };
+  return {
+    dispatchId: data.dispatch_id,
+    departedAt: data.departed_at,
+    alreadyMarked: data.already_marked,
+    originAddress: data.origin_address,
+    originLat: data.origin_lat,
+    originLng: data.origin_lng,
+  };
+}
+
+/**
+ * "출발" 등록 화면에 기본으로 채울 출발지를 서버에 물어본다(49번 요청) —
+ * "getGimhaeDefaultOrigin" 액션. 오늘 이 담당자가 이미 완료한 일정이 있으면
+ * 그 도착지가 기본값으로 오고(=직전 도착지가 다음 출발지), 없으면 김해공장
+ * 주소가 온다. 화면에서는 이 값을 그대로 입력칸에 채워주되, 자유롭게 수정할 수 있다.
+ */
+async function getGimhaeDefaultOrigin(actorEmployeeId) {
+  const data = await callGasWebApp({ action: "getGimhaeDefaultOrigin", actor_employee_id: actorEmployeeId });
+  return { source: data.source, label: data.label, address: data.address, lat: data.lat, lng: data.lng };
 }
 
 /**
@@ -2548,7 +2581,7 @@ function MonthlyLedgerScreen({ onBack }) {
           {dailyStatus === "ready" && dailyData && (
             dailyStyle === "card"
               ? <DailyLedgerCardList items={dailyFiltered} />
-              : <DailyLedgerTable items={dailyFiltered} dayHeaders={dailyData.dayHeaders} />
+              : <DailyLedgerTable items={dailyFiltered} dayHeaders={dailyData.dayHeaders} yearMonth={dailyData.yearMonth} />
           )}
         </>
       )}
@@ -2617,11 +2650,59 @@ function DailyLedgerCardList({ items }) {
 }
 
 /**
- * 월별 수불표 — "일자별로 보기" 방법2: 사진처럼 PART NO별 입고/출고/재고를
+ * 월별 수불표(방법2) 화면에 보이는 그대로 .xlsx로 만들어 다운로드한다.
+ * - 품목번호/품목명/전월재고는 각 품목당 3행(입고/출고/재고)을 병합해서 표시한다.
+ * - 화면과 동일하게, 일자별 입고/출고/재고 값이 0인 칸은 빈 칸으로 둔다
+ *   (품목명을 화면에서 숨겨도 엑셀에는 항상 포함한다 — 회계팀/거래처에 보낼 땐
+ *   품목명이 필요하기 때문).
+ */
+function exportMonthlyLedgerToExcel(items, dayHeaders, yearMonth) {
+  const headerRow = ["품목번호", "품목명", "전월재고", "항목", ...(dayHeaders || []).map((h) => h.label)];
+  const rows = [headerRow];
+  const merges = [];
+
+  (items || []).forEach((it) => {
+    const startRow = rows.length; // 헤더 행(0)을 포함한 0-인덱스 행 번호
+    const rowDefs = [
+      { label: "입고", values: (it.days || []).map((d) => d.inQty) },
+      { label: "출고", values: (it.days || []).map((d) => d.outQty) },
+      { label: "재고", values: (it.days || []).map((d) => d.stock) },
+    ];
+    rowDefs.forEach((row, idx) => {
+      rows.push([
+        idx === 0 ? it.partNo : "",
+        idx === 0 ? (it.name || "(품명 미등록)") : "",
+        idx === 0 ? Number(it.openingStock || 0) : "",
+        row.label,
+        ...row.values.map((v) => (v ? Number(v) : "")),
+      ]);
+    });
+    merges.push({ s: { r: startRow, c: 0 }, e: { r: startRow + 2, c: 0 } });
+    merges.push({ s: { r: startRow, c: 1 }, e: { r: startRow + 2, c: 1 } });
+    merges.push({ s: { r: startRow, c: 2 }, e: { r: startRow + 2, c: 2 } });
+  });
+
+  const worksheet = XLSX.utils.aoa_to_sheet(rows);
+  worksheet["!merges"] = merges;
+  worksheet["!cols"] = [
+    { wch: 14 },
+    { wch: 24 },
+    { wch: 10 },
+    { wch: 6 },
+    ...(dayHeaders || []).map(() => ({ wch: 7 })),
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "월별수불표");
+  XLSX.writeFile(workbook, `월별수불표_${yearMonth || ""}.xlsx`);
+}
+
+/**
+ * 창원 — 월별 수불표 "일자별로 보기" 방법2: 사진처럼 PART NO별 입고/출고/재고를
  * 가로로 펼친 표. 값이 0인 셀은 빈 칸으로 비워 양수/음수 데이터만 보여준다.
  * (재고가 전혀 없는 PART NO는 백엔드에서 이미 제외되어 내려온다.)
  */
-function DailyLedgerTable({ items, dayHeaders }) {
+function DailyLedgerTable({ items, dayHeaders, yearMonth }) {
   const [showName, setShowName] = useState(true);
 
   if (!items || items.length === 0) {
@@ -2647,7 +2728,13 @@ function DailyLedgerTable({ items, dayHeaders }) {
 
   return (
     <div>
-      <div className="mt-3 flex justify-end">
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          onClick={() => exportMonthlyLedgerToExcel(items, dayHeaders, yearMonth)}
+          className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-bold text-slate-500"
+        >
+          <Download className="h-3.5 w-3.5" /> 엑셀로 내보내기
+        </button>
         <button
           onClick={() => setShowName((v) => !v)}
           className="rounded-lg border border-slate-200 px-3 py-1.5 text-[11px] font-bold text-slate-500"
@@ -3723,7 +3810,6 @@ function CompletionReportModal({ item, customer, onClose, onSubmit }) {
   const [gpsStatus, setGpsStatus] = useState("locating"); // locating | ok | unavailable
   const [gpsPos, setGpsPos] = useState(null);
   const [distance, setDistance] = useState(null);
-  const [forceSubmit, setForceSubmit] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -3746,9 +3832,12 @@ function CompletionReportModal({ item, customer, onClose, onSubmit }) {
 
   const outOfFence = distance != null && distance > GEOFENCE_RADIUS_METERS;
 
+  // 49번 요청 — 반경을 벗어났을 때 "그래도 제출" 같은 우회 수단을 없앴다.
+  // 화면에서 막아도 서버(handleCompleteGimhaeSchedule)에서도 같은 반경으로 다시
+  // 검사하니 이중 안전장치지만, 일단 화면에서부터 명확하게 막아 헛걸음을 줄인다.
   const handleSubmit = async () => {
-    if (outOfFence && !forceSubmit) {
-      setError("목적지 반경을 벗어난 상태입니다. 그래도 제출하려면 아래 확인란을 체크해주세요.");
+    if (outOfFence) {
+      setError(`현재 위치가 도착지에서 ${Math.round(distance)}m 떨어져 있어 제출할 수 없습니다(${GEOFENCE_RADIUS_METERS / 1000}km 이내에서만 가능). 거래처 위치 근처로 이동한 뒤 다시 시도해주세요.`);
       return;
     }
     setError("");
@@ -3777,20 +3866,20 @@ function CompletionReportModal({ item, customer, onClose, onSubmit }) {
         <p className="mt-0.5 text-xs text-slate-400">{item.customerName} · {item.taskDescription}</p>
 
         {/* GPS 지오펜싱 상태 표시 */}
-        <div className={`mt-4 flex items-start gap-2.5 rounded-xl p-3 ${outOfFence ? "bg-amber-50" : "bg-slate-50"}`}>
+        <div className={`mt-4 flex items-start gap-2.5 rounded-xl p-3 ${outOfFence ? "bg-red-50" : "bg-slate-50"}`}>
           {gpsStatus === "locating" ? (
             <Loader2 className="mt-0.5 h-4 w-4 animate-spin text-slate-400" />
           ) : (
-            <Crosshair className="mt-0.5 h-4 w-4" style={{ color: outOfFence ? "#d97706" : BRAND.deepGreen }} />
+            <Crosshair className="mt-0.5 h-4 w-4" style={{ color: outOfFence ? "#dc2626" : BRAND.deepGreen }} />
           )}
           <div className="text-xs">
             {gpsStatus === "locating" && <p className="text-slate-500">현재 위치를 확인하는 중...</p>}
             {gpsStatus === "unavailable" && <p className="text-slate-500">위치 확인이 불가능합니다(권한 거부 또는 미지원). 지오펜싱 검사 없이 제출됩니다.</p>}
             {gpsStatus === "ok" && distance == null && <p className="text-slate-500">위치 확인됨. 이 거래처는 좌표가 등록되지 않아 거리 비교를 할 수 없습니다.</p>}
             {gpsStatus === "ok" && distance != null && (
-              <p className={outOfFence ? "font-semibold text-amber-700" : "text-slate-600"}>
+              <p className={outOfFence ? "font-semibold text-red-700" : "text-slate-600"}>
                 목적지와의 거리: 약 {Math.round(distance)}m
-                {outOfFence ? ` — 반경 ${GEOFENCE_RADIUS_METERS}m를 벗어났습니다` : " (반경 안)"}
+                {outOfFence ? ` — 반경 ${GEOFENCE_RADIUS_METERS}m를 벗어나 제출할 수 없습니다` : " (반경 안)"}
               </p>
             )}
           </div>
@@ -3820,23 +3909,16 @@ function CompletionReportModal({ item, customer, onClose, onSubmit }) {
           </div>
         </div>
 
-        {outOfFence && (
-          <label className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-            <input type="checkbox" checked={forceSubmit} onChange={(e) => setForceSubmit(e.target.checked)} className="mt-0.5" />
-            반경을 벗어난 상태이지만 실제로 현장에서 작업을 완료했습니다.
-          </label>
-        )}
-
         {error && <p className="mt-3 text-xs font-semibold text-red-500">{error}</p>}
 
         <button
           onClick={handleSubmit}
-          disabled={submitting || gpsStatus === "locating"}
+          disabled={submitting || gpsStatus === "locating" || outOfFence}
           className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-white disabled:opacity-50"
           style={{ backgroundColor: BRAND.deepGreen }}
         >
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-          {submitting ? "제출중..." : "완료 보고 제출"}
+          {submitting ? "제출중..." : outOfFence ? "반경을 벗어나 제출 불가" : "완료 보고 제출"}
         </button>
       </div>
     </div>
@@ -4480,6 +4562,28 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
   // "대기중"은 누구나 가져갈 수 있는 공용 풀이라 이 토글의 영향을 받지 않는다.
   const [showMineOnly, setShowMineOnly] = useState(true);
 
+  // 49번 요청 — "출발지" 명시 입력 + 3km 지오펜싱.
+  // defaultOrigin: 서버가 정해주는 출발지 기본값(오늘 직전에 완료한 곳, 없으면
+  // 김해공장). 화면에 입력칸을 새로 그릴 때마다 이 값으로 미리 채워준다.
+  const [defaultOrigin, setDefaultOrigin] = useState(null);
+  // originDrafts: 항목별로 사용자가 직접 수정한 출발지 주소(수정 안 하면 위
+  // defaultOrigin.address를 그대로 쓴다).
+  const [originDrafts, setOriginDrafts] = useState({});
+  // 완료 처리 후 "추가 일정이 있으신가요?" 안내를 띄울지 여부.
+  const [showMoreScheduleAsk, setShowMoreScheduleAsk] = useState(false);
+
+  const fetchDefaultOrigin = async () => {
+    try {
+      const data = await getGimhaeDefaultOrigin(employee.employeeId);
+      setDefaultOrigin(data);
+    } catch (err) {
+      // 기본값을 못 가져와도 화면 동작에는 지장 없다 — 사용자가 직접 입력하면 된다.
+    }
+  };
+
+  const originAddressFor = (dispatchId) =>
+    originDrafts[dispatchId] != null ? originDrafts[dispatchId] : (defaultOrigin ? defaultOrigin.address : "");
+
   const reload = async () => {
     setStatus("loading");
     try {
@@ -4494,7 +4598,7 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
     }
   };
 
-  useEffect(() => { reload(); }, []);
+  useEffect(() => { reload(); fetchDefaultOrigin(); }, []);
 
   // 날짜가 바뀌면(자정을 넘겨서도 화면이 켜져 있는 경우) 오늘일정 목록을
   // 자동으로 새로고침한다 — 서버가 오늘 등록된 일정만 내려주므로 그대로 다시
@@ -4525,16 +4629,28 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
   // 바로 실행해야 한다. 서버 호출(markGimhaeDeparted)을 먼저 await로 기다리면 그 사이
   // "사용자 제스처" 컨텍스트가 끊겨, iOS/PWA 환경에서 커스텀 URL 스킴이 무시되고 아무
   // 반응이 없는 문제가 있었다(19번 오류). 그래서 내비 호출을 가장 먼저 동기 실행하고,
-  // 출발시각 기록은 그 뒤에 비동기로 처리한다.
+  // 출발지 등록(주소 지오코딩 + 3km 지오펜싱 확인, 49번 요청)은 그 뒤에 비동기로 처리한다.
+  // 네비는 이미 열렸으므로, 지오펜싱에 걸려 출발 등록이 실패해도 내비 자체는 그대로
+  // 쓸 수 있다 — 다만 그 경우 주행거리 계산 기준점이 안 잡히니, 에러 메시지를 보고
+  // 출발지 주소를 다시 확인하거나(예: 오탈자) 위치를 좀 더 가까이에서 다시 눌러야 한다.
   const handleNavigate = (item) => {
     openKakaoNavi(findCustomerFor(item), item.customerName);
     setBusyId(item.dispatchId);
     (async () => {
       try {
-        await markGimhaeDeparted(employee.employeeId, item.dispatchId);
+        const pos = await getCurrentPosition();
+        if (pos.error) {
+          setError("현재 위치(GPS)를 가져올 수 없어 출발 등록을 할 수 없습니다. 위치 권한을 확인한 뒤 다시 시도해주세요(내비는 그대로 진행됩니다).");
+          return;
+        }
+        await markGimhaeDeparted(employee.employeeId, item.dispatchId, {
+          address: originAddressFor(item.dispatchId),
+          currentLat: pos.lat,
+          currentLng: pos.lng,
+        });
         await reload();
       } catch (err) {
-        setError(err.message || "출발시각 기록 중 오류가 발생했습니다.");
+        setError(err.message || "출발 등록 중 오류가 발생했습니다.");
       } finally {
         setBusyId(null);
       }
@@ -4551,6 +4667,11 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
         setCompleteNotice(`${result.mileageApplied.vehicleLabel} 차량 주행거리에 ${result.mileageApplied.distanceKm}km가 자동으로 반영됐습니다.`);
       }
       await reload();
+      // 49번 요청 — 방금 완료한 곳을 다음 출발지 기본값으로 갱신하고, "추가 일정이
+      // 있으신가요?" 안내를 띄운다. 어느 쪽을 눌러도 다음 출발 등록 입력칸에는
+      // 이미 갱신된 기본값(=방금 도착한 곳)이 채워져 있다.
+      await fetchDefaultOrigin();
+      setShowMoreScheduleAsk(true);
     } finally {
       setBusyId(null);
     }
@@ -4694,23 +4815,49 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                 })()}
 
                     {isMyDelivery ? (
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => handleNavigate(item)}
-                          disabled={busy}
-                          className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-700 disabled:opacity-50"
-                        >
-                          <Navigation className="h-3.5 w-3.5" /> 카카오내비로 길찾기
-                        </button>
-                        <button
-                          onClick={() => setReportTarget(item)}
-                          disabled={busy}
-                          className="flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50"
-                          style={{ backgroundColor: BRAND.deepGreen }}
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5" /> 완료 보고 제출
-                        </button>
-                      </div>
+                      <>
+                        {!item.departedAt ? (
+                          <div className="mt-3 rounded-lg bg-slate-50 p-3">
+                            <label className="text-[11px] font-semibold text-slate-500">출발지</label>
+                            <input
+                              value={originAddressFor(item.dispatchId)}
+                              onChange={(e) => setOriginDrafts((prev) => ({ ...prev, [item.dispatchId]: e.target.value }))}
+                              placeholder="출발지 주소"
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-2 text-xs text-slate-800 placeholder:text-slate-300 focus:outline-none"
+                            />
+                            <p className="mt-1 text-[10px] text-slate-400">
+                              {defaultOrigin
+                                ? defaultOrigin.source === "previous_arrival"
+                                  ? `직전 도착지(${defaultOrigin.label})로 기본 설정됨 · 직접 수정 가능`
+                                  : "그린산업 김해공장으로 기본 설정됨 · 직접 수정 가능"
+                                : "기본값을 불러오는 중... · 직접 수정 가능"}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="mt-3 flex items-center gap-1 text-[11px] text-slate-400">
+                            <Crosshair className="h-3 w-3" style={{ color: BRAND.deepGreen }} />
+                            출발지: {item.originAddress || "확인 불가"} · 출발 {new Date(item.departedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        )}
+
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => handleNavigate(item)}
+                            disabled={busy}
+                            className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-700 disabled:opacity-50"
+                          >
+                            <Navigation className="h-3.5 w-3.5" /> {item.departedAt ? "길찾기 다시 열기" : "출발(카카오내비 길찾기)"}
+                          </button>
+                          <button
+                            onClick={() => setReportTarget(item)}
+                            disabled={busy}
+                            className="flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50"
+                            style={{ backgroundColor: BRAND.deepGreen }}
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" /> 완료 보고 제출
+                          </button>
+                        </div>
+                      </>
                     ) : (
                       <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-center text-[11px] font-semibold text-slate-400">
                         다른 담당자의 일정입니다(진행/완료는 본인만 가능)
@@ -4772,6 +4919,34 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
           onClose={() => setReportTarget(null)}
           onSubmit={handleSubmitReport}
         />
+      )}
+
+      {/* 49번 요청 — 완료 처리 직후 "추가 일정이 있으신가요?" 안내. 어느 쪽을
+          눌러도 다음 출발 등록 입력칸에는 이미 방금 완료한 곳이 기본값으로 채워져
+          있다(handleSubmitReport에서 fetchDefaultOrigin을 먼저 갱신해뒀다). */}
+      {showMoreScheduleAsk && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6">
+          <div className="w-full max-w-xs rounded-2xl bg-white p-5 text-center">
+            <p className="text-sm font-bold text-slate-900">완료 처리됐습니다 🎉</p>
+            <p className="mt-1.5 text-xs text-slate-500">오늘 추가로 진행할 일정이 있으신가요?</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setShowMoreScheduleAsk(false)}
+                className="rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-600"
+              >
+                아니요
+              </button>
+              <button
+                onClick={() => setShowMoreScheduleAsk(false)}
+                className="rounded-lg py-2.5 text-xs font-bold text-white"
+                style={{ backgroundColor: BRAND.deepGreen }}
+              >
+                네
+              </button>
+            </div>
+            <p className="mt-3 text-[11px] text-slate-400">"네"를 선택하면, 다음 출발지가 방금 도착한 곳으로 자동 설정됩니다.</p>
+          </div>
+        </div>
       )}
     </main>
   );
