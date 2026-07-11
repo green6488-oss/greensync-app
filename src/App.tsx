@@ -3972,7 +3972,15 @@ function ChangwonRequestScreen({ employee, onBack }) {
  *   - 하위 화면 진입(null → 값): pushState로 히스토리 한 칸 쌓기
  *   - 휴대폰 뒤로가기(popstate): 홈으로 복귀(setActiveScreen(null))
  *   - 상단 "← 뒤로" 버튼 등으로 코드가 직접 홈에 가면(값 → null): 쌓아둔 히스토리 한 칸 되감기
+ *
+ * screenDepthRef: 지금 하위 화면이 열려 있는지를 앱 전역에서 공유하는 플래그.
+ * 엣지 스와이프 뒤로가기가 "하위 화면이 있을 때만" history.back()을 부르도록 하기 위한
+ * 것으로, 홈 화면에서 스와이프해도 앱 이전 히스토리(예: 근무지 전환 전 상태)로 튕겨
+ * 나가지 않게 막는다. (창원 소속이 김해로 전환한 뒤 김해 홈에서 스와이프하면 창원 홈으로
+ * 돌아가버리던 문제의 원인이 바로 이것이었다.)
  */
+const screenDepthRef = { current: false };
+
 function useScreenHistory(activeScreen, setActiveScreen) {
   const prevRef = useRef(null);
   const fromPopRef = useRef(false); // popstate로 홈에 온 경우 표시(중복 back 방지)
@@ -4004,6 +4012,8 @@ function useScreenHistory(activeScreen, setActiveScreen) {
       }
     }
     prevRef.current = activeScreen;
+    screenDepthRef.current = !!activeScreen; // 하위 화면 열림 여부를 전역에 공유
+    return () => { screenDepthRef.current = false; };
   }, [activeScreen]);
 }
 
@@ -9065,8 +9075,10 @@ export default function GreenSyncApp() {
   }, []);
 
   // 스와이프 뒤로가기(8번 요청) — 화면 왼쪽 가장자리에서 시작해 오른쪽으로 미는
-  // 동작을 감지하면 브라우저 히스토리를 한 칸 되감는다(useScreenHistory가 이 뒤로가기를
-  // 받아 홈으로 복귀시킨다). 홈 화면에서는 히스토리가 비어 있어 아무 일도 일어나지 않는다.
+  // 동작을 감지하면, 하위 화면이 열려 있을 때에 한해 브라우저 히스토리를 한 칸
+  // 되감는다(useScreenHistory가 이 뒤로가기를 받아 홈으로 복귀시킨다). 홈 화면에서는
+  // 우리 앱이 히스토리에 쌓아둔 게 없으므로, 여기서 history.back()을 부르면 앱 이전
+  // 상태(근무지 전환 전 등)로 튕겨나가 버린다 — 그래서 홈에서는 아무 것도 하지 않는다.
   useEffect(() => {
     const EDGE_PX = 24; // 화면 왼쪽 끝 이 범위 안에서 시작한 터치만 스와이프 뒤로가기로 인식
     const SWIPE_PX = 70; // 오른쪽으로 이 정도 이상 이동해야 "뒤로가기"로 인정
@@ -9093,8 +9105,10 @@ export default function GreenSyncApp() {
       const dx = t.clientX - startX;
       const dy = Math.abs(t.clientY - startY);
       if (dx > SWIPE_PX && dy < 60) {
-        // 하위 화면에서만 히스토리가 쌓여 있으므로, 뒤로가기는 홈으로 복귀로 이어진다.
-        window.history.back();
+        // 하위 화면이 열려 있을 때만 되감는다. 홈 화면에서는 무시(앱 유지).
+        if (screenDepthRef.current) {
+          window.history.back();
+        }
       }
     };
 
