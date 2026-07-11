@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   Users,
   ClipboardList,
+  PackagePlus,
   ReceiptText,
   ListChecks,
   FileText,
@@ -963,6 +964,25 @@ async function listInvoiceIntake(actorEmployeeId, month) {
   }));
 }
 
+/** 김해 기초재고 등록(전 직원) — 원자재/완제품 구분 + 여러 PART NO(수량·단가·위치). */
+async function createInitialInventory(actorEmployeeId, payload) {
+  const data = await callGasWebApp({
+    action: "createInitialInventory",
+    actor_employee_id: actorEmployeeId,
+    kind: payload.kind,
+    date: payload.date,
+    items: (payload.items || []).map((it) => ({
+      part_no: it.partNo,
+      quantity: it.quantity,
+      unit_price: it.unitPrice,
+      location: it.location,
+      note: it.note,
+    })),
+  });
+  return { itemCount: data.item_count };
+}
+
+/** 거래처정보(김해) 목록 — "listGimhaeCustomers" 액션. 거래처ID 없는 행은 서버가 자동 발급. */
 async function listGimhaeCustomers() {
   const data = await callGasWebApp({ action: "listGimhaeCustomers" });
   return (data.customers || []).map((row) => ({
@@ -7528,6 +7548,127 @@ function GimhaeUrgentRequestScreen({ employee, onBack }) {
 
 // ────────────────────────────────────────────────────────────────────────
 /**
+ * 김해 "기초재고 등록" 화면(관리팀, 전 직원) — 재고관리 시작 시점의 현재 재고를
+ * 한 번 입력한다. 원자재/완제품을 구분해서, PART NO별 수량·단가·보관위치를 여러 개
+ * 연달아 등록한다. 저장하면 "재고이동(김해)" 원장에 "기초" 행으로 남는다.
+ */
+function InitialInventoryScreen({ employee, onBack }) {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+  const [kind, setKind] = useState("원자재"); // 원자재 | 완제품
+  const [date, setDate] = useState(todayStr);
+  const emptyItem = () => ({ partNo: "", quantity: "", unitPrice: "", location: "", note: "" });
+  const [items, setItems] = useState([emptyItem()]);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [savedNotice, setSavedNotice] = useState("");
+  const [scannerIdx, setScannerIdx] = useState(null); // 어느 품목 줄의 스캔인지
+
+  const updateItem = (idx, field, value) => setItems((prev) => prev.map((it, i) => i === idx ? { ...it, [field]: value } : it));
+  const addItem = () => setItems((prev) => [...prev, emptyItem()]);
+  const removeItem = (idx) => setItems((prev) => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev);
+
+  const handleSave = async () => {
+    const filled = items.filter((it) => it.partNo.trim());
+    if (filled.length === 0) { setFormError("PART NO가 있는 항목을 최소 1개 입력해주세요."); return; }
+    setFormError("");
+    setSubmitting(true);
+    try {
+      const res = await createInitialInventory(employee.employeeId, { kind, date, items: filled });
+      setSavedNotice(`기초재고 ${res.itemCount}건이 등록되었습니다.`);
+      setItems([emptyItem()]);
+    } catch (err) {
+      setFormError(err.message || "저장 중 오류가 발생했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const inputCls = "w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50";
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <h1 className="text-xl font-bold text-slate-900">기초재고 등록</h1>
+      <p className="mt-1 text-sm text-slate-400">재고관리를 시작하는 현재 시점의 재고를 입력하세요. 이후 입고·출고는 자동으로 이 재고에서 더하고 빼집니다.</p>
+
+      <div className="mt-5 space-y-4">
+        {/* 재고구분 */}
+        <div>
+          <label className="text-xs font-semibold text-slate-500">재고구분 *</label>
+          <div className="mt-1.5 flex gap-2">
+            {["원자재", "완제품"].map((k) => (
+              <button key={k} onClick={() => setKind(k)} disabled={submitting}
+                className={`flex-1 rounded-lg py-2.5 text-sm font-bold ${kind === k ? "text-white" : "border border-slate-200 text-slate-500"}`}
+                style={kind === k ? { backgroundColor: BRAND.deepGreen } : {}}>
+                {k}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold text-slate-500">기준일자 *</label>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+        </div>
+
+        {/* 품목 연달아 입력 */}
+        <div>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-slate-500">품목 ({items.length})</label>
+            <button onClick={addItem} disabled={submitting} className="flex items-center gap-1 text-xs font-bold disabled:opacity-50" style={{ color: BRAND.deepGreen }}>
+              <PlusCircle className="h-3.5 w-3.5" /> 품목 추가
+            </button>
+          </div>
+          <div className="mt-2 space-y-3">
+            {items.map((it, idx) => (
+              <div key={idx} className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-400">품목 {idx + 1}</span>
+                  {items.length > 1 && (
+                    <button onClick={() => removeItem(idx)} disabled={submitting} className="text-[11px] font-semibold text-red-400 disabled:opacity-50">삭제</button>
+                  )}
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <input value={it.partNo} onChange={(e) => updateItem(idx, "partNo", e.target.value.toUpperCase())} placeholder="PART NO *" disabled={submitting} className={inputCls} />
+                  <button type="button" onClick={() => setScannerIdx(idx)} disabled={submitting}
+                    className="flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }} title="바코드 스캔">
+                    <ScanLine className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <input value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="수량" disabled={submitting} className={inputCls} />
+                  <input value={it.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="단가" disabled={submitting} className={inputCls} />
+                </div>
+                <input value={it.location} onChange={(e) => updateItem(idx, "location", e.target.value)} placeholder="보관위치 (예: A동 2층)" disabled={submitting} className={`mt-2 ${inputCls}`} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {formError && <p className="text-xs font-semibold text-red-500">{formError}</p>}
+        {savedNotice && <p className="text-xs font-semibold" style={{ color: BRAND.deepGreen }}>{savedNotice}</p>}
+
+        <button onClick={handleSave} disabled={submitting}
+          className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          {submitting ? "저장중..." : "기초재고 저장"}
+        </button>
+      </div>
+
+      {scannerIdx !== null && (
+        <BarcodeScannerModal
+          onScan={(code) => { updateItem(scannerIdx, "partNo", String(code).toUpperCase()); setScannerIdx(null); }}
+          onClose={() => setScannerIdx(null)}
+        />
+      )}
+    </main>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+/**
  * 김해 "거래명세표 입고" 화면(관리팀, 관리자·지원 전용) — 비용 0원 반자동 방식.
  * 관리부 직원이 수기 거래명세표를 사진으로 찍어 화면에 크게 띄워두고, 그걸 보며
  * 업체·입고일자·품목(PART NO·수량·단가·금액)을 직접 입력한다(한 명세표에 품목
@@ -8093,6 +8234,9 @@ function GimhaeHome({ employee }) {
   if (activeScreen === "invoice_intake") {
     return <InvoiceIntakeScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
+  if (activeScreen === "initial_inventory") {
+    return <InitialInventoryScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  }
 
   // 팀별 메뉴 구성(요청) — 관리팀 / 생산팀 / 영업팀 세 그룹으로 나눠, 한 화면에
   // 섹션 헤더로 구분해 위에서 아래로 쭉 보여준다(항상 3팀 전체 표시).
@@ -8104,6 +8248,7 @@ function GimhaeHome({ employee }) {
       team: "관리팀",
       cards: [
         { key: "invoice_intake", icon: ReceiptText, label: "거래명세표 입고", desc: "명세표 사진 + 품목 입력 · 엑셀 다운로드", adminOnly: true },
+        { key: "initial_inventory", icon: PackagePlus, label: "기초재고 등록", desc: "재고관리 시작 재고(수량·단가·위치) 입력", adminOnly: false },
         { key: "customers", icon: Building2, label: "거래처정보", desc: "납품 거래처 목록 조회", adminOnly: false },
         { key: "vehicles", icon: Truck, label: "차량관리", desc: "법인·개인 차량 현황 및 보험 정보", adminOnly: false },
         { key: "fuel_dashboard", icon: Fuel, label: "유류비 관리", desc: "월별 차량별 주행거리/유류비 현황", adminOnly: true },
