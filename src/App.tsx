@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   Users,
   ClipboardList,
+  ListChecks,
   FileText,
   BarChart3,
   RefreshCw,
@@ -879,6 +880,48 @@ async function registerProductionUrgentRequest(actorEmployeeId, message, partNo)
     actor_employee_id: actorEmployeeId,
     message,
     part_no: partNo,
+  });
+}
+
+/** 김해 생산 우선순위 지정 — 특정 생산자에게 우선 생산 지정(그 사람에게만 푸시). */
+async function createProductionPriority(actorEmployeeId, entry) {
+  const data = await callGasWebApp({
+    action: "createProductionPriority",
+    actor_employee_id: actorEmployeeId,
+    target_employee_id: entry.targetEmployeeId,
+    part_no: entry.partNo,
+    quantity: entry.quantity,
+    due_time: entry.dueTime,
+    message: entry.message,
+  });
+  return { priorityId: data.priority_id };
+}
+
+/** 김해 생산 우선순위 현황판 — 대기/진행 중인 항목만(완료·취소는 빠짐) 최신순. */
+async function listProductionPriority(actorEmployeeId) {
+  const data = await callGasWebApp({ action: "listProductionPriority", actor_employee_id: actorEmployeeId });
+  return (data.priorities || []).map((p) => ({
+    priorityId: p.priority_id,
+    requesterId: p.requester_id,
+    requesterName: p.requester_name,
+    targetId: p.target_id,
+    targetName: p.target_name,
+    partNo: p.part_no,
+    quantity: p.quantity,
+    dueTime: p.due_time,
+    message: p.message,
+    status: p.status,
+    createdAt: p.created_at,
+  }));
+}
+
+/** 김해 생산 우선순위 상태 변경 — 진행/완료(지정 대상) 또는 취소(요청자). */
+async function updateProductionPriorityStatus(actorEmployeeId, priorityId, status) {
+  await callGasWebApp({
+    action: "updateProductionPriorityStatus",
+    actor_employee_id: actorEmployeeId,
+    priority_id: priorityId,
+    status,
   });
 }
 
@@ -1865,6 +1908,7 @@ function NotificationScreen({ employee, onBack }) {
       { key: "gimhae_urgent_request", label: "업체 긴급요청 알림" },
       { key: "gimhae_route_share", label: "동선 전송 알림" },
       { key: "gimhae_production_urgent", label: "생산 긴급요청 알림" },
+      { key: "gimhae_production_priority", label: "생산 우선순위 지정 알림" },
     ] },
   ];
 
@@ -7447,6 +7491,215 @@ function GimhaeUrgentRequestScreen({ employee, onBack }) {
 
 // ────────────────────────────────────────────────────────────────────────
 /**
+ * 김해 "생산 우선순위 지정" 화면(생산팀, 전 직원).
+ *  - 상단: 특정 생산자를 지정해 PART NO·수량·희망완료시간·요청내용을 보내면
+ *    그 사람에게만 푸시가 간다("이거 먼저 생산해주세요").
+ *  - 하단: 전체 우선순위 현황판 — 누가 누구에게 무엇을 지정했는지 모두 보인다.
+ *    지정받은 사람은 "진행/완료", 보낸 사람은 "취소"할 수 있고, 완료·취소되면
+ *    현황판에서 사라진다.
+ */
+function ProductionPriorityScreen({ employee, onBack }) {
+  const [priorities, setPriorities] = useState([]);
+  const [employees, setEmployees] = useState([]);
+  const [status, setStatus] = useState("loading");
+  const [loadError, setLoadError] = useState("");
+
+  // 지정 폼
+  const [targetId, setTargetId] = useState("");
+  const [partNo, setPartNo] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [dueTime, setDueTime] = useState("");
+  const [message, setMessage] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [busyId, setBusyId] = useState(null);
+
+  const reload = async () => {
+    setStatus("loading");
+    try {
+      const [pr, emp] = await Promise.all([
+        listProductionPriority(employee.employeeId),
+        listEmployees(employee.employeeId),
+      ]);
+      setPriorities(pr);
+      // 김해 소속 직원을 우선 노출(생산자 지정용). 없으면 전체.
+      const gimhae = emp.filter((e) => e.homeSite === "gimhae" || e.homeSite === "김해");
+      setEmployees(gimhae.length > 0 ? gimhae : emp);
+      setStatus("ready");
+    } catch (err) {
+      setLoadError(err.message || "우선순위 현황을 불러오지 못했습니다.");
+      setStatus("error");
+    }
+  };
+
+  useEffect(() => { reload(); }, []);
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!targetId) { setFormError("지정할 생산자를 선택해주세요."); return; }
+    if (!partNo.trim() && !message.trim()) { setFormError("PART NO 또는 요청 내용을 입력해주세요."); return; }
+    setFormError("");
+    setSubmitting(true);
+    try {
+      await createProductionPriority(employee.employeeId, {
+        targetEmployeeId: targetId,
+        partNo: partNo.trim(),
+        quantity,
+        dueTime: dueTime.trim(),
+        message: message.trim(),
+      });
+      setPartNo(""); setQuantity(""); setDueTime(""); setMessage(""); setTargetId("");
+      await reload();
+    } catch (err) {
+      setFormError(err.message || "우선순위 지정 중 오류가 발생했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const changeStatus = async (priorityId, newStatus) => {
+    setBusyId(priorityId);
+    try {
+      await updateProductionPriorityStatus(employee.employeeId, priorityId, newStatus);
+      await reload();
+    } catch (err) {
+      setLoadError(err.message || "상태 변경 중 오류가 발생했습니다.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const isMe = (id) => String(id || "").trim().toUpperCase() === String(employee.employeeId || "").trim().toUpperCase();
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <h1 className="text-xl font-bold text-slate-900">생산 우선순위 지정</h1>
+      <p className="mt-1 text-sm text-slate-400">특정 생산자에게 "이 PART NO를 우선 생산해달라"고 지정하면, 그 사람에게만 알림이 갑니다.</p>
+
+      {/* 지정 폼 */}
+      <form onSubmit={handleCreate} className="mt-5 space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+        <div>
+          <label className="text-xs font-semibold text-slate-500">지정할 생산자 *</label>
+          <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={submitting}
+            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50">
+            <option value="">생산자 선택...</option>
+            {employees.map((e) => (
+              <option key={e.employeeId} value={e.employeeId}>{e.name}{e.title ? ` ${e.title}` : ""}{e.department ? ` (${e.department})` : ""}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500">PART NO</label>
+          <div className="mt-1.5 flex items-center gap-2">
+            <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} placeholder="바코드 스캔 또는 입력" disabled={submitting}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+            <button type="button" onClick={() => setScannerOpen(true)} disabled={submitting}
+              className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }} title="바코드 스캔">
+              <ScanLine className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs font-semibold text-slate-500">수량</label>
+            <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={submitting}
+              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500">희망완료시간</label>
+            <input value={dueTime} onChange={(e) => setDueTime(e.target.value)} placeholder="예: 15:00" disabled={submitting}
+              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500">요청 내용</label>
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={2} placeholder="우선 생산이 필요한 이유 등" disabled={submitting}
+            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+        </div>
+        {formError && <p className="text-xs font-semibold text-red-500">{formError}</p>}
+        <button type="submit" disabled={submitting}
+          className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListChecks className="h-4 w-4" />}
+          {submitting ? "지정중..." : "우선순위 지정 + 알림 보내기"}
+        </button>
+      </form>
+
+      {/* 전체 현황판 */}
+      <div className="mt-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-slate-700">우선순위 현황판 {priorities.length > 0 && `(${priorities.length})`}</h2>
+          <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
+            <RefreshCw className="h-3.5 w-3.5" /> 새로고침
+          </button>
+        </div>
+
+        {status === "loading" && <p className="mt-4 text-center text-xs text-slate-400">불러오는 중...</p>}
+        {status === "error" && <p className="mt-4 text-center text-xs font-semibold text-red-500">{loadError}</p>}
+        {status === "ready" && priorities.length === 0 && <p className="mt-6 text-center text-xs text-slate-400">진행 중인 우선순위 지정이 없습니다.</p>}
+
+        {status === "ready" && priorities.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {priorities.map((p) => {
+              const amTarget = isMe(p.targetId);
+              const amRequester = isMe(p.requesterId);
+              const busy = busyId === p.priorityId;
+              return (
+                <div key={p.priorityId} className={`rounded-xl border p-3 ${amTarget ? "border-green-200 bg-green-50/40" : "border-slate-200 bg-white"}`}>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        {p.partNo && <span className="text-sm font-bold text-slate-900">{p.partNo}</span>}
+                        {p.quantity !== "" && p.quantity != null && <span className="text-xs font-semibold text-slate-500">{Number(p.quantity).toLocaleString()}개</span>}
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${p.status === "진행" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{p.status}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {p.requesterName} → <span className="font-semibold text-slate-700">{p.targetName}</span>
+                        {amTarget && <span className="ml-1 font-bold" style={{ color: BRAND.deepGreen }}>· 나에게 지정됨</span>}
+                      </p>
+                    </div>
+                    {p.dueTime && <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-400"><Clock className="h-3 w-3" />{p.dueTime}</span>}
+                  </div>
+                  {p.message && <p className="mt-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">{p.message}</p>}
+
+                  {/* 상태 처리 버튼 — 지정 대상: 진행/완료, 요청자: 취소 */}
+                  {(amTarget || amRequester) && (
+                    <div className="mt-2 flex items-center gap-2">
+                      {amTarget && p.status !== "진행" && (
+                        <button onClick={() => changeStatus(p.priorityId, "진행")} disabled={busy}
+                          className="flex-1 rounded-lg border border-amber-200 py-2 text-xs font-bold text-amber-700 disabled:opacity-50">
+                          작업 시작
+                        </button>
+                      )}
+                      {amTarget && (
+                        <button onClick={() => changeStatus(p.priorityId, "완료")} disabled={busy}
+                          className="flex-1 rounded-lg py-2 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+                          완료 처리
+                        </button>
+                      )}
+                      {amRequester && (
+                        <button onClick={() => changeStatus(p.priorityId, "취소")} disabled={busy}
+                          className="flex-1 rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-500 disabled:opacity-50">
+                          취소
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {scannerOpen && <BarcodeScannerModal onScan={(code) => { setPartNo(String(code).toUpperCase()); setScannerOpen(false); }} onClose={() => setScannerOpen(false)} />}
+    </main>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+/**
  * 김해 "생산 긴급요청" 화면(생산팀, 전 직원). 현장에서 급하게 필요한 생산 요청을
  * 등록한다. 등록되면 전체 알림에 빨간색(긴급)으로 뜨고 푸시가 발송된다. PART NO를
  * 함께 넣으면(바코드 스캔/입력) 받는 사람이 어느 품목을 우선 생산해야 하는지 바로 안다.
@@ -7573,6 +7826,9 @@ function GimhaeHome({ employee }) {
   if (activeScreen === "production_urgent") {
     return <ProductionUrgentRequestScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
+  if (activeScreen === "production_priority") {
+    return <ProductionPriorityScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  }
 
   // 팀별 메뉴 구성(요청) — 관리팀 / 생산팀 / 영업팀 세 그룹으로 나눠, 한 화면에
   // 섹션 헤더로 구분해 위에서 아래로 쭉 보여준다(항상 3팀 전체 표시).
@@ -7597,6 +7853,7 @@ function GimhaeHome({ employee }) {
         { key: "mold_location", icon: MapPin, label: "목형 위치 찾기", desc: "PART NO로 목형 보관 위치(동·구역·열) 검색", adminOnly: false },
         { key: "work_instruction", icon: FileText, label: "작업지시서", desc: "목형별 압력·수량·주의사항·원단·사진", adminOnly: false },
         { key: "production_urgent", icon: Megaphone, label: "생산 긴급요청", desc: "급한 생산 요청 등록(전체 알림·푸시)", adminOnly: false, urgent: true },
+        { key: "production_priority", icon: ListChecks, label: "생산 우선순위 지정", desc: "특정 생산자에게 우선 생산 지정 + 현황판", adminOnly: false },
       ],
     },
     {
