@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   Users,
   ClipboardList,
+  Boxes,
   PackagePlus,
   ReceiptText,
   ListChecks,
@@ -980,6 +981,23 @@ async function createInitialInventory(actorEmployeeId, payload) {
     })),
   });
   return { itemCount: data.item_count };
+}
+
+/** 김해 재고 현황 조회(전 직원) — 원장 합산. kind: "원자재" | "완제품". */
+async function getInventoryStatus(actorEmployeeId, kind) {
+  const data = await callGasWebApp({ action: "getInventoryStatus", actor_employee_id: actorEmployeeId, kind });
+  return {
+    kind: data.kind,
+    totalValue: data.total_value,
+    items: (data.items || []).map((r) => ({
+      kind: r.kind,
+      partNo: r.part_no,
+      quantity: r.quantity,
+      unitPrice: r.unit_price,
+      value: r.value,
+      location: r.location,
+    })),
+  };
 }
 
 /** 거래처정보(김해) 목록 — "listGimhaeCustomers" 액션. 거래처ID 없는 행은 서버가 자동 발급. */
@@ -7548,6 +7566,127 @@ function GimhaeUrgentRequestScreen({ employee, onBack }) {
 
 // ────────────────────────────────────────────────────────────────────────
 /**
+ * 김해 "재고 현황" 화면(관리팀, 전 직원) — "재고이동(김해)" 원장을 합산한 현재
+ * 재고를 원자재/완제품 탭으로 나눠 보여준다. 원자재는 수량+금액가치+보관위치,
+ * 완제품은 수량+보관위치를 표시하고, 엑셀로 내려받을 수 있다.
+ */
+function InventoryStatusScreen({ employee, onBack }) {
+  const [kind, setKind] = useState("원자재"); // 원자재 | 완제품
+  const [data, setData] = useState(null);
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState("");
+
+  const isMaterial = kind === "원자재";
+
+  const reload = async () => {
+    setStatus("loading");
+    try {
+      const d = await getInventoryStatus(employee.employeeId, kind);
+      setData(d);
+      setStatus("ready");
+    } catch (err) {
+      setError(err.message || "재고 현황을 불러오지 못했습니다.");
+      setStatus("error");
+    }
+  };
+
+  useEffect(() => { reload(); }, [kind]);
+
+  const exportToExcel = () => {
+    if (!data) return;
+    const header = isMaterial
+      ? ["재고구분", "PART NO", "수량", "단가", "금액가치", "보관위치"]
+      : ["재고구분", "PART NO", "수량", "보관위치"];
+    const rows = [header, ...data.items.map((it) => isMaterial
+      ? [it.kind, it.partNo, it.quantity, it.unitPrice != null ? it.unitPrice : "", it.value != null ? it.value : "", it.location || ""]
+      : [it.kind, it.partNo, it.quantity, it.location || ""])];
+    if (isMaterial) rows.push(["", "합계", "", "", data.totalValue || 0, ""]);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = isMaterial
+      ? [{ wch: 10 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 16 }]
+      : [{ wch: 10 }, { wch: 18 }, { wch: 10 }, { wch: 16 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `${kind}재고`);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `재고현황_${kind}_${todayStr}.xlsx`);
+  };
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-slate-900">재고 현황</h1>
+        <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
+          <RefreshCw className="h-3.5 w-3.5" /> 새로고침
+        </button>
+      </div>
+      <p className="mt-1 text-sm text-slate-400">재고이동 기록을 합산한 현재 재고입니다(기초 + 입고 − 출고).</p>
+
+      {/* 탭 */}
+      <div className="mt-4 flex gap-2">
+        {["원자재", "완제품"].map((k) => (
+          <button key={k} onClick={() => setKind(k)}
+            className={`flex-1 rounded-lg py-2.5 text-sm font-bold ${kind === k ? "text-white" : "border border-slate-200 text-slate-500"}`}
+            style={kind === k ? { backgroundColor: BRAND.deepGreen } : {}}>
+            {k}
+          </button>
+        ))}
+      </div>
+
+      {/* 원자재일 때만 총 금액가치 카드 */}
+      {isMaterial && data && (
+        <div className="mt-4 rounded-xl p-4 text-white" style={{ backgroundColor: BRAND.deepGreen }}>
+          <p className="text-xs text-green-100">원자재 총 금액가치</p>
+          <p className="mt-1 text-2xl font-extrabold">{Number(data.totalValue || 0).toLocaleString()}원</p>
+        </div>
+      )}
+
+      <div className="mt-4 flex items-center justify-between">
+        <span className="text-xs font-semibold text-slate-500">{data ? `${data.items.length}개 품목` : ""}</span>
+        <button onClick={exportToExcel} disabled={!data || data.items.length === 0}
+          className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold text-white disabled:opacity-40" style={{ backgroundColor: BRAND.deepGreen }}>
+          <Download className="h-4 w-4" /> 엑셀 다운로드
+        </button>
+      </div>
+
+      {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
+      {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
+      {status === "ready" && data && data.items.length === 0 && (
+        <p className="mt-8 text-center text-xs text-slate-400">해당 재고 기록이 없습니다. 기초재고를 먼저 등록하거나 입고를 진행해주세요.</p>
+      )}
+
+      {status === "ready" && data && data.items.length > 0 && (
+        <div className="mt-3 space-y-2">
+          {data.items.map((it) => (
+            <div key={`${it.kind}-${it.partNo}`} className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-slate-900">{it.partNo}</span>
+                <span className={`text-sm font-extrabold ${it.quantity < 0 ? "text-red-500" : "text-slate-700"}`}>
+                  {Number(it.quantity).toLocaleString()}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+                <span>{it.location || "위치 미지정"}</span>
+                {isMaterial && (
+                  <span>
+                    {it.unitPrice != null ? `단가 ${Number(it.unitPrice).toLocaleString()}` : "단가 미등록"}
+                    {it.value != null ? ` · 가치 ${Number(it.value).toLocaleString()}원` : ""}
+                  </span>
+                )}
+              </div>
+              {it.quantity < 0 && (
+                <p className="mt-1 text-[10px] font-semibold text-red-400">※ 재고가 음수입니다 — 기초재고 미등록 또는 출고 과다일 수 있어요.</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </main>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+/**
  * 김해 "기초재고 등록" 화면(관리팀, 전 직원) — 재고관리 시작 시점의 현재 재고를
  * 한 번 입력한다. 원자재/완제품을 구분해서, PART NO별 수량·단가·보관위치를 여러 개
  * 연달아 등록한다. 저장하면 "재고이동(김해)" 원장에 "기초" 행으로 남는다.
@@ -8237,6 +8376,9 @@ function GimhaeHome({ employee }) {
   if (activeScreen === "initial_inventory") {
     return <InitialInventoryScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
+  if (activeScreen === "inventory_status") {
+    return <InventoryStatusScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  }
 
   // 팀별 메뉴 구성(요청) — 관리팀 / 생산팀 / 영업팀 세 그룹으로 나눠, 한 화면에
   // 섹션 헤더로 구분해 위에서 아래로 쭉 보여준다(항상 3팀 전체 표시).
@@ -8249,6 +8391,7 @@ function GimhaeHome({ employee }) {
       cards: [
         { key: "invoice_intake", icon: ReceiptText, label: "거래명세표 입고", desc: "명세표 사진 + 품목 입력 · 엑셀 다운로드", adminOnly: true },
         { key: "initial_inventory", icon: PackagePlus, label: "기초재고 등록", desc: "재고관리 시작 재고(수량·단가·위치) 입력", adminOnly: false },
+        { key: "inventory_status", icon: Boxes, label: "재고 현황", desc: "원자재·완제품 PART NO별 재고 · 엑셀", adminOnly: false },
         { key: "customers", icon: Building2, label: "거래처정보", desc: "납품 거래처 목록 조회", adminOnly: false },
         { key: "vehicles", icon: Truck, label: "차량관리", desc: "법인·개인 차량 현황 및 보험 정보", adminOnly: false },
         { key: "fuel_dashboard", icon: Fuel, label: "유류비 관리", desc: "월별 차량별 주행거리/유류비 현황", adminOnly: true },
