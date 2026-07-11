@@ -944,6 +944,12 @@ async function searchGimhaeMaterial(actorEmployeeId, query) {
   return (data.items || []).map((it) => ({ partNo: it.part_no, material: it.material, vendor: it.vendor, model: it.model }));
 }
 
+/** 특정 PART NO의 협력사 목록(중복 제거) + 재질 — 재단 고객사 자동채움용. */
+async function getVendorsForPartNo(actorEmployeeId, partNo) {
+  const data = await callGasWebApp({ action: "getVendorsForPartNo", actor_employee_id: actorEmployeeId, part_no: partNo });
+  return { vendors: data.vendors || [], material: data.material || "" };
+}
+
 /** 김해 생산 우선순위 상태 변경 — 진행/완료(지정 대상) 또는 취소(요청자). */
 async function updateProductionPriorityStatus(actorEmployeeId, priorityId, status) {
   await callGasWebApp({
@@ -7670,6 +7676,7 @@ function ProductionLogScreen({ employee, onBack }) {
   const [customer, setCustomer] = useState("");
   const [partNo, setPartNo] = useState("");
   const [material, setMaterial] = useState(""); // 자재마스터에서 불러온 재질
+  const [vendorOptions, setVendorOptions] = useState([]); // PART NO의 협력사 후보(여러 개면 선택)
   const [moldLocation, setMoldLocation] = useState("");
   const [storeLocation, setStoreLocation] = useState("");
 
@@ -7721,6 +7728,27 @@ function ProductionLogScreen({ employee, onBack }) {
 
   const resetLineInputs = () => {
     setQuantity(""); setSignature(null); setSigKey((k) => k + 1);
+  };
+
+  // PART NO가 확정되면(자동완성 선택/스캔) 그 PART NO의 협력사를 자재마스터에서 불러온다.
+  // 협력사가 하나면 고객사 칸을 자동 채우고, 여러 개면 후보를 띄워 선택하게 한다.
+  const fetchVendorsFor = async (pn) => {
+    const key = String(pn || "").trim();
+    if (!key) { setVendorOptions([]); return; }
+    try {
+      const { vendors, material: mat } = await getVendorsForPartNo(employee.employeeId, key);
+      if (mat && !material) setMaterial(mat);
+      if (vendors.length === 1) {
+        setCustomer(vendors[0]);
+        setVendorOptions([]);
+      } else if (vendors.length > 1) {
+        setVendorOptions(vendors);
+      } else {
+        setVendorOptions([]);
+      }
+    } catch (e) {
+      setVendorOptions([]);
+    }
   };
 
   const handleSubmit = async () => {
@@ -7807,18 +7835,23 @@ function ProductionLogScreen({ employee, onBack }) {
         <button onClick={() => setBuilding(null)} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 동 선택</button>
         <h1 className="text-[22px] font-bold tracking-tight text-slate-900">C동 설비 선택</h1>
         <p className="mt-1 break-keep text-[13px] text-slate-400">작업할 설비를 선택하세요. 재단은 A동 점착과 연동됩니다.</p>
-        <div className="mt-5 space-y-4">
+        <div className="mt-5 space-y-5">
           {C_GROUPS.map((grp, gi) => (
             <div key={gi}>
               {grp.group && <p className="mb-2 px-0.5 text-[13px] font-bold text-slate-500">{grp.group}</p>}
-              <div className={`grid gap-2.5 ${grp.items.length === 1 ? "grid-cols-1" : grp.items.length >= 4 ? "grid-cols-4" : "grid-cols-3"}`}>
-                {grp.items.map((f) => (
-                  <button key={f} onClick={() => setFacility(f)}
-                    className={`rounded-[16px] p-4 text-center font-semibold shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)] transition-all active:scale-[0.97] ${grp.items.length === 1 ? "text-[15px]" : "text-[14px]"} ${f === "재단" ? "text-white" : "bg-white text-slate-800"}`}
-                    style={f === "재단" ? { backgroundColor: BRAND.deepGreen } : {}}>
-                    {grp.group ? (f.replace(grp.group, "").trim() || f) : f}
-                  </button>
-                ))}
+              <div className="grid grid-cols-3 gap-2.5">
+                {grp.items.map((f) => {
+                  const isCut = f === "재단";
+                  const shortLabel = grp.group ? (f.replace(grp.group, "").trim() || f) : f;
+                  return (
+                    <button key={f} onClick={() => setFacility(f)}
+                      className={`relative flex h-16 items-center justify-center rounded-[16px] border text-[15px] font-bold shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)] transition-all active:scale-[0.97] ${isCut ? "border-transparent bg-white" : "border-transparent bg-white text-slate-800"}`}
+                      style={isCut ? { color: BRAND.deepGreen, boxShadow: `inset 0 0 0 1.5px ${BRAND.deepGreen}` } : {}}>
+                      {shortLabel}
+                      {isCut && <span className="absolute right-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[8px] font-bold text-white" style={{ backgroundColor: BRAND.deepGreen }}>연동</span>}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -7916,15 +7949,27 @@ function ProductionLogScreen({ employee, onBack }) {
               <label className="text-xs font-semibold text-slate-500">PART NO *</label>
               <div className="mt-1.5 flex items-start gap-2">
                 <div className="flex-1">
-                  <PartNoAutocomplete employeeId={employee.employeeId} value={partNo} onChange={setPartNo} onSelectMaterial={setMaterial} disabled={submitting} inputCls={inputCls} />
+                  <PartNoAutocomplete employeeId={employee.employeeId} value={partNo} onChange={setPartNo} onSelectMaterial={setMaterial} onSelectPartNo={fetchVendorsFor} disabled={submitting} inputCls={inputCls} />
                 </div>
                 <button type="button" onClick={() => setScannerOpen(true)} disabled={submitting} className="flex h-[46px] w-[46px] flex-shrink-0 items-center justify-center rounded-xl text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}><ScanLine className="h-5 w-5" /></button>
               </div>
               {material && <p className="mt-1.5 break-keep text-[12px] text-slate-500">재질: <span className="font-semibold text-slate-700">{material}</span></p>}
             </div>
             <div>
-              <label className="text-xs font-semibold text-slate-500">고객사</label>
+              <label className="text-xs font-semibold text-slate-500">고객사 <span className="font-normal text-slate-400">(PART NO 선택 시 자동 추천)</span></label>
               <input value={customer} onChange={(e) => setCustomer(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+              {vendorOptions.length > 1 && (
+                <div className="mt-2">
+                  <p className="text-[11px] text-slate-400">이 PART NO의 협력사가 여러 곳입니다 · 선택하세요</p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {vendorOptions.map((v) => (
+                      <button key={v} type="button" onClick={() => setCustomer(v)}
+                        className={`rounded-full px-3 py-1.5 text-xs font-bold transition-all active:scale-95 ${customer === v ? "text-white" : "border border-slate-200 text-slate-600"}`}
+                        style={customer === v ? { backgroundColor: BRAND.deepGreen } : {}}>{v}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -8022,7 +8067,7 @@ function ProductionLogScreen({ employee, onBack }) {
         )}
       </div>
 
-      {scannerOpen && <BarcodeScannerModal onScan={(code) => { setPartNo(String(code).toUpperCase()); setScannerOpen(false); }} onClose={() => setScannerOpen(false)} />}
+      {scannerOpen && <BarcodeScannerModal onScan={(code) => { const c = String(code).toUpperCase(); setPartNo(c); setScannerOpen(false); fetchVendorsFor(c); }} onClose={() => setScannerOpen(false)} />}
     </main>
   );
 }
@@ -8066,7 +8111,7 @@ function AdhesiveLotPicker({ lots, value, onChange, disabled, inputCls }) {
  * PART NO 자동완성 — 한 글자씩 입력하면 자재마스터(김해)에서 근사치 PART NO를 좁혀
  * 드롭다운으로 보여준다. 선택하면 PART NO가 채워지고 재질을 상위로 전달한다.
  */
-function PartNoAutocomplete({ employeeId, value, onChange, onSelectMaterial, disabled, inputCls, placeholder }) {
+function PartNoAutocomplete({ employeeId, value, onChange, onSelectMaterial, onSelectPartNo, disabled, inputCls, placeholder }) {
   const [results, setResults] = useState([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -8095,6 +8140,7 @@ function PartNoAutocomplete({ employeeId, value, onChange, onSelectMaterial, dis
   const pick = (item) => {
     onChange(item.partNo);
     if (onSelectMaterial) onSelectMaterial(item.material || "");
+    if (onSelectPartNo) onSelectPartNo(item.partNo);
     setOpen(false);
     setResults([]);
   };
