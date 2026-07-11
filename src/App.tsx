@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   Users,
   ClipboardList,
+  ReceiptText,
   ListChecks,
   FileText,
   BarChart3,
@@ -925,7 +926,43 @@ async function updateProductionPriorityStatus(actorEmployeeId, priorityId, statu
   });
 }
 
-/** 거래처정보(김해) 목록 — "listGimhaeCustomers" 액션. 거래처ID 없는 행은 서버가 자동 발급. */
+/** 김해 거래명세표 입고 등록(관리부·관리자·지원) — 사진 1장 + 품목 여러 개. */
+async function createInvoiceIntake(actorEmployeeId, invoice) {
+  const data = await callGasWebApp({
+    action: "createInvoiceIntake",
+    actor_employee_id: actorEmployeeId,
+    supplier: invoice.supplier,
+    intake_date: invoice.intakeDate,
+    photo_base64: invoice.photoBase64,
+    items: (invoice.items || []).map((it) => ({
+      part_no: it.partNo,
+      quantity: it.quantity,
+      unit_price: it.unitPrice,
+      total_price: it.totalPrice,
+      note: it.note,
+    })),
+  });
+  return { invoiceId: data.invoice_id, itemCount: data.item_count, photoUrl: data.photo_url };
+}
+
+/** 김해 거래명세표 입고 조회(관리부·관리자·지원) — 특정 월(yyyy-MM, 없으면 전체). */
+async function listInvoiceIntake(actorEmployeeId, month) {
+  const data = await callGasWebApp({ action: "listInvoiceIntake", actor_employee_id: actorEmployeeId, month });
+  return (data.items || []).map((r) => ({
+    invoiceId: r.invoice_id,
+    intakeDate: r.intake_date,
+    supplier: r.supplier,
+    partNo: r.part_no,
+    quantity: r.quantity,
+    unitPrice: r.unit_price,
+    totalPrice: r.total_price,
+    photoUrl: r.photo_url,
+    registeredBy: r.registered_by,
+    createdAt: r.created_at,
+    note: r.note,
+  }));
+}
+
 async function listGimhaeCustomers() {
   const data = await callGasWebApp({ action: "listGimhaeCustomers" });
   return (data.customers || []).map((row) => ({
@@ -7491,6 +7528,230 @@ function GimhaeUrgentRequestScreen({ employee, onBack }) {
 
 // ────────────────────────────────────────────────────────────────────────
 /**
+ * 김해 "거래명세표 입고" 화면(관리팀, 관리자·지원 전용) — 비용 0원 반자동 방식.
+ * 관리부 직원이 수기 거래명세표를 사진으로 찍어 화면에 크게 띄워두고, 그걸 보며
+ * 업체·입고일자·품목(PART NO·수량·단가·금액)을 직접 입력한다(한 명세표에 품목
+ * 여러 개 연달아). 저장 시 사진이 증빙으로 함께 보관되고, 조회 탭에서 월별로 보고
+ * 엑셀로 내려받을 수 있다. (자동 OCR은 이 입력값을 미리 채워주는 방식으로 추후 확장)
+ */
+function InvoiceIntakeScreen({ employee, onBack }) {
+  const [tab, setTab] = useState("register"); // register | list
+
+  // ── 등록 상태 ──
+  const [supplier, setSupplier] = useState("");
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const [intakeDate, setIntakeDate] = useState(todayStr);
+  const [photo, setPhoto] = useState(null);
+  const emptyItem = () => ({ partNo: "", quantity: "", unitPrice: "", totalPrice: "", note: "" });
+  const [items, setItems] = useState([emptyItem()]);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [savedNotice, setSavedNotice] = useState("");
+
+  const updateItem = (idx, field, value) => {
+    setItems((prev) => prev.map((it, i) => {
+      if (i !== idx) return it;
+      const next = { ...it, [field]: value };
+      // 수량·단가가 둘 다 있으면 총금액 자동 계산(사용자가 직접 고치면 그 값 유지).
+      if ((field === "quantity" || field === "unitPrice")) {
+        const q = Number(field === "quantity" ? value : it.quantity);
+        const u = Number(field === "unitPrice" ? value : it.unitPrice);
+        if (q > 0 && u > 0) next.totalPrice = String(q * u);
+      }
+      return next;
+    }));
+  };
+
+  const addItem = () => setItems((prev) => [...prev, emptyItem()]);
+  const removeItem = (idx) => setItems((prev) => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev);
+
+  const handleSave = async () => {
+    if (!supplier.trim()) { setFormError("업체명을 입력해주세요."); return; }
+    if (!intakeDate) { setFormError("입고일자를 입력해주세요."); return; }
+    const filled = items.filter((it) => it.partNo.trim());
+    if (filled.length === 0) { setFormError("PART NO가 있는 품목을 최소 1개 입력해주세요."); return; }
+    setFormError("");
+    setSubmitting(true);
+    try {
+      const res = await createInvoiceIntake(employee.employeeId, {
+        supplier: supplier.trim(),
+        intakeDate,
+        photoBase64: photo,
+        items: filled,
+      });
+      setSavedNotice(`거래명세표가 저장되었습니다 (품목 ${res.itemCount}건).`);
+      // 초기화(업체·날짜는 연속 입력 편의를 위해 유지, 사진·품목만 리셋).
+      setPhoto(null);
+      setItems([emptyItem()]);
+    } catch (err) {
+      setFormError(err.message || "저장 중 오류가 발생했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ── 조회 상태 ──
+  const [listMonth, setListMonth] = useState(todayStr.slice(0, 7));
+  const [records, setRecords] = useState([]);
+  const [listStatus, setListStatus] = useState("idle");
+  const [listError, setListError] = useState("");
+
+  const loadList = async () => {
+    setListStatus("loading");
+    try {
+      const data = await listInvoiceIntake(employee.employeeId, listMonth);
+      setRecords(data);
+      setListStatus("ready");
+    } catch (err) {
+      setListError(err.message || "거래명세표를 불러오지 못했습니다.");
+      setListStatus("error");
+    }
+  };
+
+  useEffect(() => { if (tab === "list") loadList(); }, [tab, listMonth]);
+
+  const exportToExcel = () => {
+    const header = ["입고일자", "업체", "PART NO", "입고수량", "단가", "총금액", "등록자", "비고"];
+    const rows = [header, ...records.map((r) => [
+      r.intakeDate, r.supplier, r.partNo,
+      r.quantity !== "" && r.quantity != null ? Number(r.quantity) : "",
+      r.unitPrice !== "" && r.unitPrice != null ? Number(r.unitPrice) : "",
+      r.totalPrice !== "" && r.totalPrice != null ? Number(r.totalPrice) : "",
+      r.registeredBy || "", r.note || "",
+    ])];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 12 }, { wch: 20 }, { wch: 16 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 16 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "거래명세입고");
+    XLSX.writeFile(wb, `거래명세입고_${listMonth || "전체"}.xlsx`);
+  };
+
+  const inputCls = "w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50";
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <h1 className="text-xl font-bold text-slate-900">거래명세표 입고</h1>
+      <p className="mt-1 text-sm text-slate-400">명세표를 사진으로 찍어 보면서 품목을 입력하세요. 저장된 자료는 엑셀로 내려받을 수 있습니다.</p>
+
+      {/* 탭 */}
+      <div className="mt-4 flex gap-2">
+        {[["register", "입고 등록"], ["list", "조회 · 엑셀"]].map(([key, label]) => (
+          <button key={key} onClick={() => setTab(key)}
+            className={`flex-1 rounded-lg py-2 text-xs font-bold ${tab === key ? "text-white" : "border border-slate-200 text-slate-500"}`}
+            style={tab === key ? { backgroundColor: BRAND.deepGreen } : {}}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "register" && (
+        <div className="mt-5 space-y-4">
+          {/* 사진 — 크게 띄워두고 보면서 입력 */}
+          <div>
+            <label className="text-xs font-semibold text-slate-500">거래명세표 사진</label>
+            <div className="mt-1.5">
+              <PhotoCapture value={photo} onChange={setPhoto} />
+            </div>
+            <p className="mt-1 text-[11px] text-slate-400">사진을 찍어두면 증빙으로 함께 저장됩니다. 화면에 띄워두고 아래 항목을 보면서 입력하세요.</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-slate-500">업체 *</label>
+              <input value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="예: 진양(진례)" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">입고일자 *</label>
+              <input type="date" value={intakeDate} onChange={(e) => setIntakeDate(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+            </div>
+          </div>
+
+          {/* 품목 — 연달아 입력 */}
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-500">품목 ({items.length})</label>
+              <button onClick={addItem} disabled={submitting} className="flex items-center gap-1 text-xs font-bold disabled:opacity-50" style={{ color: BRAND.deepGreen }}>
+                <PlusCircle className="h-3.5 w-3.5" /> 품목 추가
+              </button>
+            </div>
+            <div className="mt-2 space-y-3">
+              {items.map((it, idx) => (
+                <div key={idx} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-400">품목 {idx + 1}</span>
+                    {items.length > 1 && (
+                      <button onClick={() => removeItem(idx)} disabled={submitting} className="text-[11px] font-semibold text-red-400 disabled:opacity-50">삭제</button>
+                    )}
+                  </div>
+                  <input value={it.partNo} onChange={(e) => updateItem(idx, "partNo", e.target.value.toUpperCase())} placeholder="PART NO *" disabled={submitting} className={`mt-2 ${inputCls}`} />
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    <input value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="수량" disabled={submitting} className={inputCls} />
+                    <input value={it.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="단가" disabled={submitting} className={inputCls} />
+                    <input value={it.totalPrice} onChange={(e) => updateItem(idx, "totalPrice", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="총금액" disabled={submitting} className={inputCls} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {formError && <p className="text-xs font-semibold text-red-500">{formError}</p>}
+          {savedNotice && <p className="text-xs font-semibold" style={{ color: BRAND.deepGreen }}>{savedNotice}</p>}
+
+          <button onClick={handleSave} disabled={submitting}
+            className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            {submitting ? "저장중..." : "거래명세표 저장"}
+          </button>
+        </div>
+      )}
+
+      {tab === "list" && (
+        <div className="mt-5">
+          <div className="flex items-center gap-2">
+            <input type="month" value={listMonth} onChange={(e) => setListMonth(e.target.value)} className={inputCls} />
+            <button onClick={exportToExcel} disabled={records.length === 0}
+              className="flex h-[42px] flex-shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-40" style={{ backgroundColor: BRAND.deepGreen }}>
+              <Download className="h-4 w-4" /> 엑셀
+            </button>
+          </div>
+
+          {listStatus === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
+          {listStatus === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{listError}</p>}
+          {listStatus === "ready" && records.length === 0 && <p className="mt-6 text-center text-xs text-slate-400">해당 월에 등록된 거래명세표가 없습니다.</p>}
+
+          {listStatus === "ready" && records.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {records.map((r, idx) => (
+                <div key={`${r.invoiceId}-${idx}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-slate-900">{r.partNo}</span>
+                    <span className="text-[11px] text-slate-400">{r.intakeDate}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {r.supplier}
+                    {r.quantity !== "" && r.quantity != null ? ` · ${Number(r.quantity).toLocaleString()}개` : ""}
+                    {r.unitPrice !== "" && r.unitPrice != null ? ` · 단가 ${Number(r.unitPrice).toLocaleString()}` : ""}
+                    {r.totalPrice !== "" && r.totalPrice != null ? ` · 총 ${Number(r.totalPrice).toLocaleString()}` : ""}
+                  </p>
+                  {r.photoUrl && (
+                    <a href={r.photoUrl} target="_blank" rel="noopener noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold" style={{ color: BRAND.deepGreen }}>
+                      <ImageIcon className="h-3 w-3" /> 명세표 사진
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </main>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+/**
  * 김해 "생산 우선순위 지정" 화면(생산팀, 전 직원).
  *  - 상단: 특정 생산자를 지정해 PART NO·수량·희망완료시간·요청내용을 보내면
  *    그 사람에게만 푸시가 간다("이거 먼저 생산해주세요").
@@ -7829,6 +8090,9 @@ function GimhaeHome({ employee }) {
   if (activeScreen === "production_priority") {
     return <ProductionPriorityScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
+  if (activeScreen === "invoice_intake") {
+    return <InvoiceIntakeScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  }
 
   // 팀별 메뉴 구성(요청) — 관리팀 / 생산팀 / 영업팀 세 그룹으로 나눠, 한 화면에
   // 섹션 헤더로 구분해 위에서 아래로 쭉 보여준다(항상 3팀 전체 표시).
@@ -7839,6 +8103,7 @@ function GimhaeHome({ employee }) {
     {
       team: "관리팀",
       cards: [
+        { key: "invoice_intake", icon: ReceiptText, label: "거래명세표 입고", desc: "명세표 사진 + 품목 입력 · 엑셀 다운로드", adminOnly: true },
         { key: "customers", icon: Building2, label: "거래처정보", desc: "납품 거래처 목록 조회", adminOnly: false },
         { key: "vehicles", icon: Truck, label: "차량관리", desc: "법인·개인 차량 현황 및 보험 정보", adminOnly: false },
         { key: "fuel_dashboard", icon: Fuel, label: "유류비 관리", desc: "월별 차량별 주행거리/유류비 현황", adminOnly: true },
