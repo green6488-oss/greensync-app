@@ -28,6 +28,8 @@ import {
   AlertTriangle,
   Users,
   ClipboardList,
+  ChevronLeft,
+  Trash2,
   CalendarRange,
   Boxes,
   PackagePlus,
@@ -1096,6 +1098,15 @@ async function listGimhaeSchedule() {
   }));
 }
 
+/** 김해 오늘일정 삭제(전 직원) — 대기중/납품중만 삭제 가능, 완료 건은 서버가 거부. */
+async function deleteGimhaeSchedule(actorEmployeeId, dispatchId) {
+  await callGasWebApp({
+    action: "deleteGimhaeSchedule",
+    actor_employee_id: actorEmployeeId,
+    dispatch_id: dispatchId,
+  });
+}
+
 /**
  * 납품경로 타임라인(관리자 전용) — "listGimhaeDeliveryHistory" 액션.
  * 지정한 날짜에 완료된 일정을 처리기사별로 묶어, 완료시각 순서(=방문 순서)로 돌려준다.
@@ -1738,36 +1749,36 @@ function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout, onOpenNoti
   const canSwitchSite = SITE_SWITCHABLE_ROLES.includes(employee.role);
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-100 bg-white px-4 pb-3 sm:px-6" style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}>
+    <header className="sticky top-0 z-30 border-b border-slate-100 bg-white/80 px-4 pb-3 backdrop-blur-md sm:px-6" style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2.5">
           <img src={GREEN_LOGO_SRC} alt="그린산업 로고" className="h-9 w-9 flex-shrink-0 object-contain" />
           <div className="min-w-0">
-            <p className="whitespace-nowrap text-[15px] font-bold text-slate-900">그린산업(주)</p>
+            <p className="whitespace-nowrap text-[15px] font-bold tracking-tight text-slate-900">그린산업(주)</p>
             <p className="truncate text-[11px] text-slate-400">
               {site ? site.label : "알 수 없는 근무지"} · {site ? site.role : ""}
             </p>
           </div>
         </div>
 
-        <div className="flex flex-shrink-0 items-center gap-2">
+        <div className="flex flex-shrink-0 items-center gap-1.5">
           {canSwitchSite && (
             <button
               onClick={() => onSwitchSite(activeSite === "changwon" ? "gimhae" : "changwon")}
-              className="flex flex-shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 transition-transform active:scale-95 active:bg-slate-50"
+              className="flex flex-shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 transition-all active:scale-95 active:bg-slate-50"
               title="지원/관리자 권한으로 근무지를 전환할 수 있습니다"
             >
               <ArrowLeftRight className="h-3 w-3 flex-shrink-0" />
               {activeSite === "changwon" ? "김해 전환" : "창원 전환"}
             </button>
           )}
-          <button onClick={onOpenNotifications} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 active:bg-slate-50">
+          <button onClick={onOpenNotifications} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition-colors active:scale-95 active:bg-slate-50">
             <Bell className="h-4 w-4" />
           </button>
-          <button onClick={onOpenPasswordChange} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 active:bg-slate-50" title="비밀번호 변경">
+          <button onClick={onOpenPasswordChange} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition-colors active:scale-95 active:bg-slate-50" title="비밀번호 변경">
             <KeyRound className="h-4 w-4" />
           </button>
-          <button onClick={onLogout} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 active:bg-slate-50">
+          <button onClick={onLogout} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition-colors active:scale-95 active:bg-slate-50">
             <LogOut className="h-4 w-4" />
           </button>
         </div>
@@ -1778,8 +1789,8 @@ function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout, onOpenNoti
         <span className="font-bold text-slate-800">{employee.name}</span>
         <span className="text-slate-400">{employee.title}</span>
         <span className="text-slate-300">·</span>
-        <span className="flex items-center gap-1">
-          <ShieldCheck className="h-3 w-3 flex-shrink-0" />
+        <span className="flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5">
+          <ShieldCheck className="h-3 w-3 flex-shrink-0" style={{ color: BRAND.deepGreen }} />
           {ROLE_LABELS[employee.role] || employee.role}
         </span>
       </div>
@@ -2029,7 +2040,7 @@ function NotificationScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">알림</h1>
 
       <div className={`mt-4 grid gap-2 ${isAdmin ? "grid-cols-3" : "grid-cols-2"}`}>
@@ -2488,8 +2499,8 @@ function TransactionRegisterScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">
-        ← 홈으로
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50">
+        <ChevronLeft className="h-3.5 w-3.5" /> 홈으로
       </button>
       <h1 className="text-xl font-bold text-slate-900">입출고 등록</h1>
       <p className="mt-1 text-sm text-slate-400">창원(마산)공장 · {employee.name}{employee.title}</p>
@@ -2793,7 +2804,7 @@ function StockSummaryScreen({ onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">재고조회</h1>
       <p className="mt-1 text-sm text-slate-400">PART NO 또는 품명으로 현재 재고를 검색합니다.</p>
 
@@ -2924,7 +2935,7 @@ function MonthlyLedgerScreen({ onBack }) {
 
   return (
     <main className={`mx-auto px-6 py-8 ${wide ? "max-w-5xl" : "max-w-md"}`}>
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">월별 수불표</h1>
       <p className="mt-1 text-sm text-slate-400">PART NO별 전월재고 + 입고 - 출고 = 당월재고 현황입니다.</p>
 
@@ -3477,7 +3488,7 @@ function MaterialLocationScreen({ onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">위치찾기</h1>
       <p className="mt-1 text-sm text-slate-400">PART NO로 보관 층수와 도면 위 위치를 확인합니다.</p>
 
@@ -3567,7 +3578,7 @@ function TempLcScreen({ onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">임시 L/C 재배치</h1>
       <p className="mt-1 text-sm text-slate-400">임시 L/C를 사용중인 입출고내역만 모아서 보여줍니다.</p>
 
@@ -3670,7 +3681,7 @@ function MaterialRegisterScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">자재등록</h1>
       <p className="mt-1 text-sm text-slate-400">신규 PART NO를 자재마스터(창원)에 등록합니다.</p>
 
@@ -3818,7 +3829,7 @@ function RequesterScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-900">요청자명부</h1>
         {isAdmin && (
@@ -3919,7 +3930,7 @@ function ChangwonRequestScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">요청</h1>
       <p className="mt-1 text-sm text-slate-400">
         자유롭게 적어주시면 전체 알림에 빨간색으로 표시됩니다.
@@ -3952,9 +3963,52 @@ function ChangwonRequestScreen({ employee, onBack }) {
   );
 }
 
+/**
+ * 하위 화면(activeScreen)을 브라우저 히스토리와 연결해 휴대폰 뒤로가기(제스처/버튼)를
+ * "홈으로 돌아가기"로 동작시키는 훅. 홈(activeScreen === null)에서는 히스토리를 쌓지
+ * 않으므로 뒤로가기가 앱에 영향을 주지 않는다(제스처해도 아무 일 없음).
+ *   - 하위 화면 진입(null → 값): pushState로 히스토리 한 칸 쌓기
+ *   - 휴대폰 뒤로가기(popstate): 홈으로 복귀(setActiveScreen(null))
+ *   - 상단 "← 뒤로" 버튼 등으로 코드가 직접 홈에 가면(값 → null): 쌓아둔 히스토리 한 칸 되감기
+ */
+function useScreenHistory(activeScreen, setActiveScreen) {
+  const prevRef = useRef(null);
+  const fromPopRef = useRef(false); // popstate로 홈에 온 경우 표시(중복 back 방지)
+
+  useEffect(() => {
+    const onPopState = () => {
+      // 휴대폰 뒤로가기 → 홈으로. 이 경로로 온 null은 히스토리를 이미 브라우저가
+      // 되감았으므로, 아래 효과에서 history.back()을 또 부르지 않도록 표시해둔다.
+      fromPopRef.current = true;
+      setActiveScreen(null);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [setActiveScreen]);
+
+  useEffect(() => {
+    const prev = prevRef.current;
+    if (!prev && activeScreen) {
+      // 홈 → 하위 화면: 히스토리 한 칸 쌓기(이제 뒤로가기 한 번이면 홈으로).
+      window.history.pushState({ screen: activeScreen }, "");
+    } else if (prev && !activeScreen) {
+      // 하위 화면 → 홈. 상단 "← 뒤로" 버튼 등 코드가 직접 이동한 경우에만 쌓아둔
+      // 히스토리를 되감는다. 휴대폰 뒤로가기(popstate)로 온 경우엔 브라우저가 이미
+      // 되감았으므로 다시 부르지 않는다(안 그러면 앱이 통째로 뒤로 나가버림).
+      if (fromPopRef.current) {
+        fromPopRef.current = false;
+      } else {
+        window.history.back();
+      }
+    }
+    prevRef.current = activeScreen;
+  }, [activeScreen]);
+}
+
 function ChangwonHome({ employee }) {
   const isAdmin = isElevatedRole(employee.role); // 관리자 또는 지원(15번)
   const [activeScreen, setActiveScreen] = useState(null);
+  useScreenHistory(activeScreen, setActiveScreen);
 
   if (activeScreen === "transaction") {
     return <TransactionRegisterScreen employee={employee} onBack={() => setActiveScreen(null)} />;
@@ -3997,19 +4051,22 @@ function ChangwonHome({ employee }) {
   ];
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-8">
-      <h1 className="text-xl font-bold text-slate-900">창원(마산)공장 입출고 관리</h1>
-      <p className="mt-1 text-sm text-slate-400">
-        {employee.name}{employee.title} · {
-          employee.role === "관리자"
-            ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다."
-            : employee.role === "지원"
-            ? "지원 권한으로 일부 메뉴를 임시로 사용할 수 있습니다."
-            : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 입출고 등록/조회가 가능합니다.`
-        }
-      </p>
+    <main className="mx-auto max-w-3xl px-5 py-7">
+      <div className="overflow-hidden rounded-3xl p-5 text-white shadow-sm" style={{ background: `linear-gradient(135deg, ${BRAND.deepGreen} 0%, ${BRAND.deepGreenDark} 100%)` }}>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">CHANGWON FACTORY</p>
+        <h1 className="mt-1 text-lg font-bold">창원(마산)공장 입출고 관리</h1>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-white/70">
+          {employee.name}{employee.title} · {
+            employee.role === "관리자"
+              ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다."
+              : employee.role === "지원"
+              ? "지원 권한으로 일부 메뉴를 임시로 사용할 수 있습니다."
+              : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 입출고 등록/조회가 가능합니다.`
+          }
+        </p>
+      </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-3">
+      <div className="mt-7 grid grid-cols-2 gap-2.5">
         {menuCards.map((card) => {
           const locked = card.adminOnly && !isAdmin;
           return (
@@ -4017,15 +4074,20 @@ function ChangwonHome({ employee }) {
               key={card.key}
               disabled={locked}
               onClick={() => !locked && setActiveScreen(card.key)}
-              className={`flex flex-col items-start gap-2 rounded-2xl border p-4 text-left ${
-                locked ? "border-slate-100 bg-slate-50 opacity-50" : "border-slate-200 bg-white shadow-sm active:bg-slate-50"
+              className={`group flex flex-col items-start gap-2.5 rounded-2xl border p-4 text-left transition-all duration-150 ${
+                locked
+                  ? "border-slate-100 bg-slate-50 opacity-50"
+                  : "border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_6px_16px_rgba(16,24,40,0.08)] active:translate-y-0 active:shadow-sm"
               }`}
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: card.urgent ? "#fee2e2" : BRAND.greenSoft }}>
-                <card.icon className="h-5 w-5" style={{ color: card.urgent ? "#dc2626" : BRAND.deepGreen }} />
+              <span
+                className="flex h-11 w-11 items-center justify-center rounded-2xl transition-transform duration-150 group-hover:scale-105"
+                style={{ backgroundColor: card.urgent ? "#fee2e2" : BRAND.greenSoft }}
+              >
+                <card.icon className="h-[22px] w-[22px]" style={{ color: card.urgent ? "#dc2626" : BRAND.deepGreen }} />
               </span>
-              <span className="text-[15px] font-bold text-slate-900">{card.label}</span>
-              <span className="text-xs text-slate-400">{card.desc}</span>
+              <span className="text-[14px] font-bold leading-tight text-slate-900">{card.label}</span>
+              <span className="text-[11.5px] leading-snug text-slate-400">{card.desc}</span>
               {locked && <span className="text-[10px] font-semibold text-amber-600">관리자만 사용 가능</span>}
             </button>
           );
@@ -4085,7 +4147,7 @@ function EmployeeListScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">직원명부</h1>
       <p className="mt-1 text-sm text-slate-400">전체 직원 목록(관리자 전용)입니다.</p>
 
@@ -4725,7 +4787,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
         <h1 className="flex items-center gap-1.5 text-xl font-bold text-slate-900">
           <Route className="h-5 w-5" style={{ color: BRAND.deepGreen }} /> 김해공장 스마트 동선 최적화
@@ -5325,6 +5387,21 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
     }
   };
 
+  // 대기중 일정 삭제(전 직원) — 잘못 등록한 일정을 지운다. 완료 건은 서버가 거부한다.
+  const handleDelete = async (item) => {
+    if (!window.confirm(`'${item.customerName}' 일정을 삭제할까요? 되돌릴 수 없습니다.`)) return;
+    setBusyId(item.dispatchId);
+    setError("");
+    try {
+      await deleteGimhaeSchedule(employee.employeeId, item.dispatchId);
+      await reload();
+    } catch (err) {
+      setError(err.message || "삭제 중 오류가 발생했습니다.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   // 카카오내비 호출(kakaonavi:// 커스텀 스킴)은 반드시 클릭 이벤트 안에서 "동기적으로"
   // 바로 실행해야 한다. 서버 호출(markGimhaeDeparted)을 먼저 await로 기다리면 그 사이
   // "사용자 제스처" 컨텍스트가 끊겨, iOS/PWA 환경에서 커스텀 URL 스킴이 무시되고 아무
@@ -5387,7 +5464,7 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-900">오늘일정</h1>
         <div className="flex items-center gap-3">
@@ -5447,7 +5524,13 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                         <p className="text-sm font-bold text-slate-900">{item.customerName}</p>
                         <p className="text-xs text-slate-400">{item.taskDescription}</p>
                       </div>
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">{item.dispatchId}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">{item.dispatchId}</span>
+                        <button onClick={() => handleDelete(item)} disabled={busy} title="일정 삭제"
+                          className="flex h-6 w-6 items-center justify-center rounded-full text-slate-300 hover:text-red-500 disabled:opacity-50">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     <button
@@ -5816,7 +5899,7 @@ function GimhaeDeliveryHistoryScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">납품경로 타임라인</h1>
       <p className="mt-1 text-sm text-slate-400">
         {isToday ? "오늘은 진행중인 배송까지 실시간으로 보여줍니다(30초마다 자동 새로고침)." : "그날 담당자별로 방문한 거래처 순서를 볼 수 있습니다."}
@@ -5960,7 +6043,7 @@ function GimhaeCustomerScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-900">거래처정보</h1>
         {isAdmin && (
@@ -6167,7 +6250,7 @@ function GimhaeVehicleScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-900">차량관리</h1>
         {isAdmin && (
@@ -6615,7 +6698,7 @@ function FuelCostDashboardScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">유류비 관리</h1>
       <p className="mt-1 text-sm text-slate-400">월별 차량별 주행거리 기반 "예상 유류비"와, 주유 등록으로 쌓인 "실제 주유비"를 함께 보여줍니다.</p>
 
@@ -6715,7 +6798,7 @@ function WorkInstructionScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">작업지시서</h1>
       <p className="mt-1 text-sm text-slate-400">PART NO로 목형별 작업규칙(압력·수량·주의사항 등)을 확인합니다.</p>
 
@@ -6982,7 +7065,7 @@ function MoldLocationScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">목형 위치 찾기</h1>
       <p className="mt-1 text-sm text-slate-400">PART NO로 목형이 어느 동·구역·열에 있는지 찾습니다.</p>
 
@@ -7227,7 +7310,7 @@ function ProductionDashboardScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-900">실시간 생산 대시보드</h1>
         <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
@@ -7461,7 +7544,7 @@ function ProductionLogScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">생산일보 등록</h1>
       <p className="mt-1 text-sm text-slate-400">{todayStr} · 한 줄씩 연달아 등록하세요. 각 줄은 작성 즉시 위·변조 방지 기록으로 저장됩니다.</p>
 
@@ -7631,7 +7714,7 @@ function GimhaeUrgentRequestScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">업체 긴급요청</h1>
       <p className="mt-1 text-sm text-slate-400">거래처 현장에서 급하게 들어온 요청을 등록해주세요. 등록되면 전체 알림에 빨간색으로 표시됩니다.</p>
 
@@ -7720,7 +7803,7 @@ function InventoryLedgerScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-900">월별 수불표</h1>
         <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
@@ -7838,7 +7921,7 @@ function InventoryStatusScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-900">재고 현황</h1>
         <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
@@ -7953,7 +8036,7 @@ function InitialInventoryScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">기초재고 등록</h1>
       <p className="mt-1 text-sm text-slate-400">재고관리를 시작하는 현재 시점의 재고를 입력하세요. 이후 입고·출고는 자동으로 이 재고에서 더하고 빼집니다.</p>
 
@@ -7963,7 +8046,7 @@ function InitialInventoryScreen({ employee, onBack }) {
           <label className="text-xs font-semibold text-slate-500">재고구분 *</label>
           <div className="mt-1.5 flex gap-2">
             {["원자재", "완제품"].map((k) => (
-              <button key={k} onClick={() => setKind(k)} disabled={submitting}
+              <button key={k} onClick={() => { setKind(k); if (k === "완제품") setItems((prev) => prev.map((it) => ({ ...it, unitPrice: "" }))); }} disabled={submitting}
                 className={`flex-1 rounded-lg py-2.5 text-sm font-bold ${kind === k ? "text-white" : "border border-slate-200 text-slate-500"}`}
                 style={kind === k ? { backgroundColor: BRAND.deepGreen } : {}}>
                 {k}
@@ -8001,9 +8084,11 @@ function InitialInventoryScreen({ employee, onBack }) {
                     <ScanLine className="h-5 w-5" />
                   </button>
                 </div>
-                <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className={`mt-2 grid gap-2 ${kind === "원자재" ? "grid-cols-2" : "grid-cols-1"}`}>
                   <input value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="수량" disabled={submitting} className={inputCls} />
-                  <input value={it.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="단가" disabled={submitting} className={inputCls} />
+                  {kind === "원자재" && (
+                    <input value={it.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="단가" disabled={submitting} className={inputCls} />
+                  )}
                 </div>
                 <input value={it.location} onChange={(e) => updateItem(idx, "location", e.target.value)} placeholder="보관위치 (예: A동 2층)" disabled={submitting} className={`mt-2 ${inputCls}`} />
               </div>
@@ -8136,7 +8221,7 @@ function InvoiceIntakeScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">거래명세표 입고</h1>
       <p className="mt-1 text-sm text-slate-400">명세표를 사진으로 찍어 보면서 품목을 입력하세요. 저장된 자료는 엑셀로 내려받을 수 있습니다.</p>
 
@@ -8340,7 +8425,7 @@ function ProductionPriorityScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">생산 우선순위 지정</h1>
       <p className="mt-1 text-sm text-slate-400">특정 생산자에게 "이 PART NO를 우선 생산해달라"고 지정하면, 그 사람에게만 알림이 갑니다.</p>
 
@@ -8498,7 +8583,7 @@ function ProductionUrgentRequestScreen({ employee, onBack }) {
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <h1 className="text-xl font-bold text-slate-900">생산 긴급요청</h1>
       <p className="mt-1 text-sm text-slate-400">급하게 필요한 생산 요청을 등록해주세요. 등록되면 전체 알림에 빨간색으로 표시되고 푸시가 발송됩니다.</p>
 
@@ -8549,6 +8634,7 @@ function ProductionUrgentRequestScreen({ employee, onBack }) {
 function GimhaeHome({ employee }) {
   const isAdmin = isElevatedRole(employee.role); // 관리자 또는 지원(15번)
   const [activeScreen, setActiveScreen] = useState(null);
+  useScreenHistory(activeScreen, setActiveScreen);
 
   if (activeScreen === "schedule") {
     return <GimhaeScheduleScreen employee={employee} onBack={() => setActiveScreen(null)} />;
@@ -8651,26 +8737,30 @@ function GimhaeHome({ employee }) {
   ];
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-8">
-      <h1 className="text-xl font-bold text-slate-900">김해공장 물류 동선 관리</h1>
-      <p className="mt-1 text-sm text-slate-400">
-        {employee.name}{employee.title} · {
-          employee.role === "관리자"
-            ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다."
-            : employee.role === "지원"
-            ? "지원 권한으로 일부 메뉴를 임시로 사용할 수 있습니다."
-            : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 오늘일정 조회/완료처리가 가능합니다.`
-        }
-      </p>
+    <main className="mx-auto max-w-3xl px-5 py-7">
+      {/* 상단 인사 배너 — 은은한 그라데이션으로 프로페셔널한 첫인상 */}
+      <div className="overflow-hidden rounded-3xl p-5 text-white shadow-sm" style={{ background: `linear-gradient(135deg, ${BRAND.deepGreen} 0%, ${BRAND.deepGreenDark} 100%)` }}>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">GIMHAE FACTORY</p>
+        <h1 className="mt-1 text-lg font-bold">김해공장 물류·생산·재고 관리</h1>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-white/70">
+          {employee.name}{employee.title} · {
+            employee.role === "관리자"
+              ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다."
+              : employee.role === "지원"
+              ? "지원 권한으로 일부 메뉴를 임시로 사용할 수 있습니다."
+              : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 오늘일정 조회/완료처리가 가능합니다.`
+          }
+        </p>
+      </div>
 
       {teamSections.map((section) => (
-        <section key={section.team} className="mt-6">
+        <section key={section.team} className="mt-7">
           <div className="mb-3 flex items-center gap-2">
-            <span className="h-4 w-1 rounded-full" style={{ backgroundColor: BRAND.deepGreen }} />
-            <h2 className="text-sm font-bold text-slate-700">{section.team}</h2>
-            <span className="text-xs text-slate-300">{section.cards.length}</span>
+            <span className="h-3.5 w-1 rounded-full" style={{ backgroundColor: BRAND.deepGreen }} />
+            <h2 className="text-[13px] font-bold tracking-tight text-slate-800">{section.team}</h2>
+            <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-400">{section.cards.length}</span>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2.5">
             {section.cards.map((card) => {
               const locked = card.adminOnly && !isAdmin;
               return (
@@ -8678,15 +8768,20 @@ function GimhaeHome({ employee }) {
                   key={card.key}
                   disabled={locked}
                   onClick={() => !locked && setActiveScreen(card.key)}
-                  className={`flex flex-col items-start gap-2 rounded-2xl border p-4 text-left ${
-                    locked ? "border-slate-100 bg-slate-50 opacity-50" : "border-slate-200 bg-white shadow-sm active:bg-slate-50"
+                  className={`group flex flex-col items-start gap-2.5 rounded-2xl border p-4 text-left transition-all duration-150 ${
+                    locked
+                      ? "border-slate-100 bg-slate-50 opacity-50"
+                      : "border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_6px_16px_rgba(16,24,40,0.08)] active:translate-y-0 active:shadow-sm"
                   }`}
                 >
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: card.urgent ? "#fee2e2" : BRAND.greenSoft }}>
-                    <card.icon className="h-5 w-5" style={{ color: card.urgent ? "#dc2626" : BRAND.deepGreen }} />
+                  <span
+                    className="flex h-11 w-11 items-center justify-center rounded-2xl transition-transform duration-150 group-hover:scale-105"
+                    style={{ backgroundColor: card.urgent ? "#fee2e2" : BRAND.greenSoft }}
+                  >
+                    <card.icon className="h-[22px] w-[22px]" style={{ color: card.urgent ? "#dc2626" : BRAND.deepGreen }} />
                   </span>
-                  <span className="text-[15px] font-bold text-slate-900">{card.label}</span>
-                  <span className="text-xs text-slate-400">{card.desc}</span>
+                  <span className="text-[14px] font-bold leading-tight text-slate-900">{card.label}</span>
+                  <span className="text-[11.5px] leading-snug text-slate-400">{card.desc}</span>
                   {locked && <span className="text-[10px] font-semibold text-amber-600">관리자만 사용 가능</span>}
                 </button>
               );
@@ -8960,9 +9055,8 @@ export default function GreenSyncApp() {
   }, []);
 
   // 스와이프 뒤로가기(8번 요청) — 화면 왼쪽 가장자리에서 시작해 오른쪽으로 미는
-  // 동작을 감지하면, 현재 화면에 있는 "← 홈으로" 버튼을 찾아 대신 눌러준다.
-  // 화면마다 별도로 손대지 않고 한 곳에서만 처리할 수 있도록, 모든 화면이 같은
-  // 문구의 뒤로가기 버튼을 쓰는 기존 관례를 그대로 활용했다.
+  // 동작을 감지하면 브라우저 히스토리를 한 칸 되감는다(useScreenHistory가 이 뒤로가기를
+  // 받아 홈으로 복귀시킨다). 홈 화면에서는 히스토리가 비어 있어 아무 일도 일어나지 않는다.
   useEffect(() => {
     const EDGE_PX = 24; // 화면 왼쪽 끝 이 범위 안에서 시작한 터치만 스와이프 뒤로가기로 인식
     const SWIPE_PX = 70; // 오른쪽으로 이 정도 이상 이동해야 "뒤로가기"로 인정
@@ -8989,8 +9083,8 @@ export default function GreenSyncApp() {
       const dx = t.clientX - startX;
       const dy = Math.abs(t.clientY - startY);
       if (dx > SWIPE_PX && dy < 60) {
-        const backButton = Array.from(document.querySelectorAll("button")).find((b) => b.textContent.trim() === "← 홈으로");
-        if (backButton) backButton.click();
+        // 하위 화면에서만 히스토리가 쌓여 있으므로, 뒤로가기는 홈으로 복귀로 이어진다.
+        window.history.back();
       }
     };
 
