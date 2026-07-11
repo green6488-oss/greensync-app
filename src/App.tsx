@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   Users,
   ClipboardList,
+  CalendarRange,
   Boxes,
   PackagePlus,
   ReceiptText,
@@ -1000,6 +1001,29 @@ async function getInventoryStatus(actorEmployeeId, kind) {
   };
 }
 
+/** 김해 월별 수불표(전 직원) — 원장 기반 일자별 입고/출고/재고. kind: "원자재"|"완제품". */
+async function getGimhaeInventoryLedger(actorEmployeeId, kind, yearMonth) {
+  const data = await callGasWebApp({
+    action: "getGimhaeInventoryLedger",
+    actor_employee_id: actorEmployeeId,
+    kind,
+    year_month: yearMonth,
+  });
+  return {
+    kind: data.kind,
+    yearMonth: data.year_month,
+    dayHeaders: (data.day_headers || []).map((h) => ({ day: h.day, weekday: h.weekday, label: h.label })),
+    items: (data.items || []).map((it) => ({
+      partNo: it.part_no,
+      openingStock: it.opening_stock,
+      totalIn: it.total_in,
+      totalOut: it.total_out,
+      closingStock: it.closing_stock,
+      days: (it.days || []).map((d) => ({ day: d.day, inQty: d.in_qty, outQty: d.out_qty, stock: d.stock })),
+    })),
+  };
+}
+
 /** 거래처정보(김해) 목록 — "listGimhaeCustomers" 액션. 거래처ID 없는 행은 서버가 자동 발급. */
 async function listGimhaeCustomers() {
   const data = await callGasWebApp({ action: "listGimhaeCustomers" });
@@ -1222,6 +1246,7 @@ async function completeGimhaeSchedule(actorEmployeeId, dispatchId, extra = {}) {
     signer_name: extra.signerName,
     completed_lat: extra.completedLat,
     completed_lng: extra.completedLng,
+    shipment_items: (extra.shipmentItems || []).map((it) => ({ part_no: it.partNo, quantity: it.quantity })),
   });
   return {
     dispatchId: data.dispatch_id,
@@ -1231,6 +1256,7 @@ async function completeGimhaeSchedule(actorEmployeeId, dispatchId, extra = {}) {
     isCrossSupport: data.is_cross_support,
     photoUrl: data.photo_url,
     signatureUrl: data.signature_url,
+    shipmentCount: data.shipment_count,
     mileageApplied: data.mileage_applied
       ? { vehicleLabel: data.mileage_applied.vehicle_label, distanceKm: data.mileage_applied.distance_km, currentMileage: data.mileage_applied.current_mileage }
       : null,
@@ -4269,16 +4295,26 @@ function SignaturePad({ onChange }) {
 // 경고를 보여준다 — 시뮬레이션 토글 대신 진짜 위치 기반으로 동작한다.
 // 거래처에 좌표가 없으면(지오코딩 실패 등) 지오펜싱 검사 없이 진행한다.
 // ────────────────────────────────────────────────────────────────────────
-function CompletionReportModal({ item, customer, onClose, onSubmit }) {
+function CompletionReportModal({ item, customer, employee, onClose, onSubmit }) {
   const [photo, setPhoto] = useState(null);
   const [signature, setSignature] = useState(null);
   const [signerName, setSignerName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  // 영업부 출고 차감 — 납품 완료 시 출고한 완제품(PART NO·수량)을 여기서 잡으면
+  // 완제품 재고에서 차감된다. 여러 품목을 연달아 추가할 수 있다.
+  const [shipItems, setShipItems] = useState([]);
+  const [scannerIdx, setScannerIdx] = useState(null);
+  const [stockMap, setStockMap] = useState(null); // 완제품 PART NO → 현재 재고
+
   const [gpsStatus, setGpsStatus] = useState("locating"); // locating | ok | unavailable
   const [gpsPos, setGpsPos] = useState(null);
   const [distance, setDistance] = useState(null);
+
+  const addShipItem = () => setShipItems((prev) => [...prev, { partNo: "", quantity: "" }]);
+  const updateShipItem = (idx, field, value) => setShipItems((prev) => prev.map((it, i) => i === idx ? { ...it, [field]: value } : it));
+  const removeShipItem = (idx) => setShipItems((prev) => prev.filter((_, i) => i !== idx));
 
   useEffect(() => {
     let cancelled = false;
@@ -4298,6 +4334,24 @@ function CompletionReportModal({ item, customer, onClose, onSubmit }) {
     })();
     return () => { cancelled = true; };
   }, [customer]);
+
+  // 완제품 현재 재고를 미리 받아둔다(출고 수량이 재고보다 많으면 경고 표시용).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!employee) return;
+      try {
+        const data = await getInventoryStatus(employee.employeeId, "완제품");
+        if (cancelled) return;
+        const map = {};
+        data.items.forEach((it) => { map[String(it.partNo).toUpperCase()] = it.quantity; });
+        setStockMap(map);
+      } catch (err) {
+        // 재고 조회 실패해도 완료 처리 자체는 진행 가능(경고만 못 보여줄 뿐).
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [employee]);
 
   const outOfFence = distance != null && distance > GEOFENCE_RADIUS_METERS;
   // 51번 요청 — 3km(하드 차단) 전에 1.5km 지점에서 미리 "점점 멀어지고 있다"는
@@ -4321,6 +4375,7 @@ function CompletionReportModal({ item, customer, onClose, onSubmit }) {
         signerName,
         completedLat: gpsPos ? gpsPos.lat : null,
         completedLng: gpsPos ? gpsPos.lng : null,
+        shipmentItems: shipItems.filter((it) => it.partNo.trim() && Number(it.quantity) > 0),
       });
     } catch (err) {
       setError(err.message || "제출 중 오류가 발생했습니다.");
@@ -4385,6 +4440,49 @@ function CompletionReportModal({ item, customer, onClose, onSubmit }) {
           </div>
         </div>
 
+        {/* 영업부 출고 차감 — 이번에 출고한 완제품을 잡으면 완제품 재고에서 빠진다 */}
+        <div className="mt-4">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-slate-500">출고 품목 <span className="font-normal text-slate-400">(선택 · 완제품 재고에서 차감)</span></label>
+            <button type="button" onClick={addShipItem} disabled={submitting} className="flex items-center gap-1 text-xs font-bold disabled:opacity-50" style={{ color: BRAND.deepGreen }}>
+              <PlusCircle className="h-3.5 w-3.5" /> 품목 추가
+            </button>
+          </div>
+          {shipItems.length === 0 ? (
+            <p className="mt-1.5 text-[11px] text-slate-400">출고한 제품이 있으면 "품목 추가"로 PART NO·수량을 잡아주세요. 완제품 재고에서 자동 차감됩니다.</p>
+          ) : (
+            <div className="mt-2 space-y-2">
+              {shipItems.map((it, idx) => {
+                const key = String(it.partNo || "").trim().toUpperCase();
+                const stock = stockMap && key ? stockMap[key] : undefined;
+                const qtyNum = Number(it.quantity);
+                const over = stock != null && qtyNum > 0 && qtyNum > stock;
+                return (
+                  <div key={idx} className="rounded-xl border border-slate-200 bg-white p-2.5">
+                    <div className="flex items-center gap-2">
+                      <input value={it.partNo} onChange={(e) => updateShipItem(idx, "partNo", e.target.value.toUpperCase())} placeholder="PART NO" disabled={submitting}
+                        className="w-full rounded-lg border border-slate-200 px-2.5 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+                      <button type="button" onClick={() => setScannerIdx(idx)} disabled={submitting}
+                        className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }} title="바코드 스캔">
+                        <ScanLine className="h-4 w-4" />
+                      </button>
+                      <input value={it.quantity} onChange={(e) => updateShipItem(idx, "quantity", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="수량" disabled={submitting}
+                        className="w-20 flex-shrink-0 rounded-lg border border-slate-200 px-2.5 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+                      <button type="button" onClick={() => removeShipItem(idx)} disabled={submitting} className="flex-shrink-0 text-slate-300"><X className="h-4 w-4" /></button>
+                    </div>
+                    {key && stock != null && (
+                      <p className={`mt-1 text-[11px] ${over ? "font-semibold text-red-500" : "text-slate-400"}`}>
+                        현재 재고 {Number(stock).toLocaleString()}
+                        {over ? ` · 출고 수량이 재고보다 많습니다(음수 재고가 됩니다)` : ""}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {error && <p className="mt-3 text-xs font-semibold text-red-500">{error}</p>}
 
         <button
@@ -4397,6 +4495,13 @@ function CompletionReportModal({ item, customer, onClose, onSubmit }) {
           {submitting ? "제출중..." : outOfFence ? "반경을 벗어나 제출 불가" : "완료 보고 제출"}
         </button>
       </div>
+
+      {scannerIdx !== null && (
+        <BarcodeScannerModal
+          onScan={(code) => { updateShipItem(scannerIdx, "partNo", String(code).toUpperCase()); setScannerIdx(null); }}
+          onClose={() => setScannerIdx(null)}
+        />
+      )}
     </div>
   );
 }
@@ -5511,6 +5616,7 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
         <CompletionReportModal
           item={reportTarget}
           customer={findCustomerFor(reportTarget)}
+          employee={employee}
           onClose={() => setReportTarget(null)}
           onSubmit={handleSubmitReport}
         />
@@ -7566,6 +7672,125 @@ function GimhaeUrgentRequestScreen({ employee, onBack }) {
 
 // ────────────────────────────────────────────────────────────────────────
 /**
+ * 김해 "월별 수불표" 화면(관리팀, 전 직원) — "재고이동(김해)" 원장을 기반으로
+ * 전월재고 + 입고 − 출고 = 당월재고를 PART NO별로 계산한다. 원자재/완제품 탭으로
+ * 나눠 보여주고, 창원처럼 일자별(1일~말일) 입고·출고·재고를 엑셀로 내려받는다.
+ */
+function InventoryLedgerScreen({ employee, onBack }) {
+  const [kind, setKind] = useState("원자재");
+  const today = new Date();
+  const [ym, setYm] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`);
+  const [data, setData] = useState(null);
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState("");
+
+  const reload = async () => {
+    setStatus("loading");
+    try {
+      const d = await getGimhaeInventoryLedger(employee.employeeId, kind, ym);
+      setData(d);
+      setStatus("ready");
+    } catch (err) {
+      setError(err.message || "월별 수불표를 불러오지 못했습니다.");
+      setStatus("error");
+    }
+  };
+
+  useEffect(() => { reload(); }, [kind, ym]);
+
+  // 엑셀 — 창원 방식의 일자별 표. 상단에 PART NO/전월재고/입고/출고/당월재고,
+  // 이어서 각 날짜별 입고·출고·재고 3열씩.
+  const exportToExcel = () => {
+    if (!data || data.items.length === 0) return;
+    const dayCols = [];
+    data.dayHeaders.forEach((h) => { dayCols.push(`${h.label} 입고`, `${h.label} 출고`, `${h.label} 재고`); });
+    const header = ["PART NO", "전월재고", "당월입고", "당월출고", "당월재고", ...dayCols];
+    const rows = [header];
+    data.items.forEach((it) => {
+      const row = [it.partNo, it.openingStock, it.totalIn, it.totalOut, it.closingStock];
+      it.days.forEach((d) => { row.push(d.inQty || "", d.outQty || "", d.stock); });
+      rows.push(row);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = header.map((_, i) => ({ wch: i === 0 ? 18 : 10 }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `${kind}수불표`);
+    XLSX.writeFile(wb, `월별수불표_${kind}_${ym}.xlsx`);
+  };
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 text-xs font-semibold text-slate-400">← 홈으로</button>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-slate-900">월별 수불표</h1>
+        <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
+          <RefreshCw className="h-3.5 w-3.5" /> 새로고침
+        </button>
+      </div>
+      <p className="mt-1 text-sm text-slate-400">전월재고 + 입고 − 출고 = 당월재고. 일자별 상세는 엑셀에서 볼 수 있어요.</p>
+
+      {/* 탭 */}
+      <div className="mt-4 flex gap-2">
+        {["원자재", "완제품"].map((k) => (
+          <button key={k} onClick={() => setKind(k)}
+            className={`flex-1 rounded-lg py-2.5 text-sm font-bold ${kind === k ? "text-white" : "border border-slate-200 text-slate-500"}`}
+            style={kind === k ? { backgroundColor: BRAND.deepGreen } : {}}>
+            {k}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <input type="month" value={ym} onChange={(e) => setYm(e.target.value)}
+          className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none" />
+        <button onClick={exportToExcel} disabled={!data || data.items.length === 0}
+          className="flex h-[42px] flex-shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-40" style={{ backgroundColor: BRAND.deepGreen }}>
+          <Download className="h-4 w-4" /> 엑셀
+        </button>
+      </div>
+
+      {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
+      {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
+      {status === "ready" && data && data.items.length === 0 && (
+        <p className="mt-8 text-center text-xs text-slate-400">이 달에 표시할 재고 내역이 없습니다.</p>
+      )}
+
+      {/* 화면에는 PART NO별 요약(전월/입고/출고/당월)만, 상세 일자별은 엑셀에서 */}
+      {status === "ready" && data && data.items.length > 0 && (
+        <div className="mt-4 space-y-2">
+          {data.items.map((it) => (
+            <div key={it.partNo} className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-slate-900">{it.partNo}</span>
+                <span className={`text-sm font-extrabold ${it.closingStock < 0 ? "text-red-500" : "text-slate-700"}`}>
+                  당월재고 {Number(it.closingStock).toLocaleString()}
+                </span>
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-slate-50 py-1.5">
+                  <p className="text-[10px] text-slate-400">전월재고</p>
+                  <p className="text-sm font-bold text-slate-600">{Number(it.openingStock).toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg bg-green-50 py-1.5">
+                  <p className="text-[10px] text-slate-400">입고</p>
+                  <p className="text-sm font-bold" style={{ color: BRAND.deepGreen }}>+{Number(it.totalIn).toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg bg-red-50 py-1.5">
+                  <p className="text-[10px] text-slate-400">출고</p>
+                  <p className="text-sm font-bold text-red-500">−{Number(it.totalOut).toLocaleString()}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+          <p className="pt-2 text-center text-[11px] text-slate-400">일자별 상세(1일~말일 입고·출고·재고)는 엑셀 다운로드에서 확인하세요.</p>
+        </div>
+      )}
+    </main>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+/**
  * 김해 "재고 현황" 화면(관리팀, 전 직원) — "재고이동(김해)" 원장을 합산한 현재
  * 재고를 원자재/완제품 탭으로 나눠 보여준다. 원자재는 수량+금액가치+보관위치,
  * 완제품은 수량+보관위치를 표시하고, 엑셀로 내려받을 수 있다.
@@ -8379,6 +8604,9 @@ function GimhaeHome({ employee }) {
   if (activeScreen === "inventory_status") {
     return <InventoryStatusScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
+  if (activeScreen === "inventory_ledger") {
+    return <InventoryLedgerScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  }
 
   // 팀별 메뉴 구성(요청) — 관리팀 / 생산팀 / 영업팀 세 그룹으로 나눠, 한 화면에
   // 섹션 헤더로 구분해 위에서 아래로 쭉 보여준다(항상 3팀 전체 표시).
@@ -8392,6 +8620,7 @@ function GimhaeHome({ employee }) {
         { key: "invoice_intake", icon: ReceiptText, label: "거래명세표 입고", desc: "명세표 사진 + 품목 입력 · 엑셀 다운로드", adminOnly: true },
         { key: "initial_inventory", icon: PackagePlus, label: "기초재고 등록", desc: "재고관리 시작 재고(수량·단가·위치) 입력", adminOnly: false },
         { key: "inventory_status", icon: Boxes, label: "재고 현황", desc: "원자재·완제품 PART NO별 재고 · 엑셀", adminOnly: false },
+        { key: "inventory_ledger", icon: CalendarRange, label: "월별 수불표", desc: "일자별 입고·출고·재고 · 엑셀", adminOnly: false },
         { key: "customers", icon: Building2, label: "거래처정보", desc: "납품 거래처 목록 조회", adminOnly: false },
         { key: "vehicles", icon: Truck, label: "차량관리", desc: "법인·개인 차량 현황 및 보험 정보", adminOnly: false },
         { key: "fuel_dashboard", icon: Fuel, label: "유류비 관리", desc: "월별 차량별 주행거리/유류비 현황", adminOnly: true },
