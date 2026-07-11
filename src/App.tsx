@@ -2043,7 +2043,7 @@ function NotificationScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">알림</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">알림</h1>
 
       <div className={`mt-4 grid gap-2 ${isAdmin ? "grid-cols-3" : "grid-cols-2"}`}>
         <button onClick={() => setTab("urgent")} className={`flex items-center justify-center gap-1 rounded-lg py-2 text-xs font-bold ${tab === "urgent" ? "text-white" : "border border-red-200 text-red-500"}`} style={tab === "urgent" ? { backgroundColor: "#dc2626" } : {}}>
@@ -2504,7 +2504,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50">
         <ChevronLeft className="h-3.5 w-3.5" /> 홈으로
       </button>
-      <h1 className="text-xl font-bold text-slate-900">입출고 등록</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">입출고 등록</h1>
       <p className="mt-1 text-sm text-slate-400">창원(마산)공장 · {employee.name}{employee.title}</p>
 
       <div className="mt-5 grid grid-cols-2 gap-2">
@@ -2807,7 +2807,7 @@ function StockSummaryScreen({ onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">재고조회</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">재고조회</h1>
       <p className="mt-1 text-sm text-slate-400">PART NO 또는 품명으로 현재 재고를 검색합니다.</p>
 
       <div className="mt-5 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
@@ -2938,13 +2938,13 @@ function MonthlyLedgerScreen({ onBack }) {
   return (
     <main className={`mx-auto px-6 py-8 ${wide ? "max-w-5xl" : "max-w-md"}`}>
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">월별 수불표</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">월별 수불표</h1>
       <p className="mt-1 text-sm text-slate-400">PART NO별 전월재고 + 입고 - 출고 = 당월재고 현황입니다.</p>
 
       <div className="mt-4 flex items-center gap-2">
         <input type="month" value={yearMonth} onChange={(e) => setYearMonth(e.target.value)}
-          className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none" />
-        <button onClick={handleSearch} className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">
+          className="rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none" />
+        <button onClick={handleSearch} className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-600 transition-all active:scale-95 active:bg-slate-50">
           <RefreshCw className="h-3.5 w-3.5" /> 조회
         </button>
       </div>
@@ -2997,11 +2997,11 @@ function MonthlyLedgerScreen({ onBack }) {
           {status === "ready" && (
             <>
               <div className="mt-4 grid grid-cols-2 gap-2 text-center">
-                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
                   <p className="text-[11px] text-slate-400">이번 달 입고 합계</p>
                   <p className="mt-1 text-lg font-extrabold" style={{ color: BRAND.deepGreen }}>{totals.inQty.toLocaleString()}</p>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
                   <p className="text-[11px] text-slate-400">이번 달 출고 합계</p>
                   <p className="mt-1 text-lg font-extrabold text-slate-700">{totals.outQty.toLocaleString()}</p>
                 </div>
@@ -3491,7 +3491,7 @@ function MaterialLocationScreen({ onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">위치찾기</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">위치찾기</h1>
       <p className="mt-1 text-sm text-slate-400">PART NO로 보관 층수와 도면 위 위치를 확인합니다.</p>
 
       <form onSubmit={handleSearch} className="mt-5 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
@@ -3520,7 +3520,7 @@ function MaterialLocationScreen({ onBack }) {
       {status === "error" && <p className="mt-4 text-xs font-semibold text-red-500">{error}</p>}
 
       {result && (
-        <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="mt-5 rounded-[20px] bg-white p-5 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
           <p className="text-sm font-bold text-slate-900">{result.name}</p>
           <p className="text-xs text-slate-400">{result.partNo}</p>
 
@@ -3581,7 +3581,7 @@ function TempLcScreen({ onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">임시 L/C 재배치</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">임시 L/C 재배치</h1>
       <p className="mt-1 text-sm text-slate-400">임시 L/C를 사용중인 입출고내역만 모아서 보여줍니다.</p>
 
       {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
@@ -3684,7 +3684,7 @@ function MaterialRegisterScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">자재등록</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">자재등록</h1>
       <p className="mt-1 text-sm text-slate-400">신규 PART NO를 자재마스터(창원)에 등록합니다.</p>
 
       <form onSubmit={handleSubmit} className="mt-5 space-y-4">
@@ -3833,7 +3833,7 @@ function RequesterScreen({ employee, onBack }) {
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900">요청자명부</h1>
+        <h1 className="text-[22px] font-bold tracking-tight text-slate-900">요청자명부</h1>
         {isAdmin && (
           <button onClick={() => setShowForm((v) => !v)}
             className="flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold text-white"
@@ -3849,24 +3849,24 @@ function RequesterScreen({ employee, onBack }) {
           <div>
             <label className="text-xs font-semibold text-slate-500">요청자명 *</label>
             <input value={name} onChange={(e) => setName(e.target.value)} disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs font-semibold text-slate-500">소속부서</label>
               <input value={department} onChange={(e) => setDepartment(e.target.value)} disabled={submitting}
-                className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500">연락처</label>
               <input value={contact} onChange={(e) => setContact(e.target.value)} disabled={submitting}
-                className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
             </div>
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">담당</label>
             <input value={owner} onChange={(e) => setOwner(e.target.value)} disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
           </div>
           {formError && <p className="text-xs font-semibold text-red-500">{formError}</p>}
           <button type="submit" disabled={submitting}
@@ -3933,7 +3933,7 @@ function ChangwonRequestScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">요청</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">요청</h1>
       <p className="mt-1 text-sm text-slate-400">
         자유롭게 적어주시면 전체 알림에 빨간색으로 표시됩니다.
       </p>
@@ -4054,18 +4054,16 @@ function ChangwonHome({ employee }) {
 
   return (
     <main className="mx-auto max-w-3xl px-5 py-7">
-      <div className="overflow-hidden rounded-[28px] px-6 py-7 text-white" style={{ background: `linear-gradient(150deg, ${BRAND.deepGreen} 0%, ${BRAND.deepGreenDark} 100%)`, boxShadow: "0 10px 30px -12px rgba(14,92,48,0.5)" }}>
-        <h1 className="text-[22px] font-bold leading-tight tracking-tight">창원(마산)공장 입출고 관리</h1>
-        <p className="mt-2.5 max-w-[92%] break-keep text-[13.5px] leading-relaxed text-white/75">
-          {employee.name}{employee.title} · {
-            employee.role === "관리자"
-              ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다."
-              : employee.role === "지원"
-              ? "지원 권한으로 일부 메뉴를 임시로 사용할 수 있습니다."
-              : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 입출고 등록/조회가 가능합니다.`
-          }
-        </p>
-      </div>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">창원(마산)공장 입출고 관리</h1>
+      <p className="mt-1.5 break-keep text-[13.5px] leading-relaxed text-slate-400">
+        {employee.name}{employee.title} · {
+          employee.role === "관리자"
+            ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다."
+            : employee.role === "지원"
+            ? "지원 권한으로 일부 메뉴를 임시로 사용할 수 있습니다."
+            : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 입출고 등록/조회가 가능합니다.`
+        }
+      </p>
 
       <div className="mt-8 grid grid-cols-2 gap-3">
         {menuCards.map((card) => {
@@ -4151,7 +4149,7 @@ function EmployeeListScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">직원명부</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">직원명부</h1>
       <p className="mt-1 text-sm text-slate-400">전체 직원 목록(관리자 전용)입니다.</p>
 
       <div className="mt-5 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
@@ -4175,20 +4173,20 @@ function EmployeeListScreen({ employee, onBack }) {
 
       {status === "ready" && (
         <div className="mt-5 space-y-2">
-          {filtered.length === 0 && <p className="py-8 text-center text-xs text-slate-400">검색 결과가 없습니다.</p>}
+          {filtered.length === 0 && <p className="rounded-2xl bg-white py-8 text-center text-xs text-slate-400 shadow-[0_1px_3px_rgba(16,24,40,0.05)]">검색 결과가 없습니다.</p>}
           {filtered.map((e) => (
-            <div key={e.employeeId} className="rounded-xl border border-slate-200 bg-white p-4">
+            <div key={e.employeeId} className="rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-bold text-slate-900">{e.name} <span className="text-xs font-normal text-slate-400">{e.title}</span></p>
+                <p className="text-[15px] font-semibold tracking-tight text-slate-900">{e.name} <span className="text-xs font-normal text-slate-400">{e.title}</span></p>
                 <span className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: ROLE_BADGE_COLORS[e.role] || BRAND.deepGreen }}>
                   {ROLE_LABELS[e.role] || e.role}
                 </span>
               </div>
               <p className="mt-1 text-xs text-slate-500">{e.employeeId} · {SITES[e.homeSite]?.label || e.homeSite} · {e.department}</p>
-              <div className="mt-1 flex items-center justify-between gap-2">
+              <div className="mt-2 flex items-center justify-between gap-2">
                 <p className="text-[11px] text-slate-400">{e.contact || "연락처 미입력"} {e.email ? `· ${e.email}` : ""}</p>
                 {e.contact && (
-                  <a href={`tel:${e.contact}`} className="flex flex-shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold text-white" style={{ backgroundColor: BRAND.deepGreen }}>
+                  <a href={`tel:${e.contact}`} className="flex flex-shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold text-white transition-all active:scale-95" style={{ backgroundColor: BRAND.deepGreen }}>
                     <Phone className="h-3 w-3" /> 전화
                   </a>
                 )}
@@ -4792,7 +4790,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
-        <h1 className="flex items-center gap-1.5 text-xl font-bold text-slate-900">
+        <h1 className="flex items-center gap-1.5 text-[22px] font-bold tracking-tight text-slate-900">
           <Route className="h-5 w-5" style={{ color: BRAND.deepGreen }} /> 김해공장 스마트 동선 최적화
         </h1>
         <button onClick={handleReset} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
@@ -4802,7 +4800,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
       <p className="mt-1 text-sm text-slate-400">그린산업(주) · 순회 납품 동선, 카카오모빌리티 경유지 최적화 연동</p>
 
       {/* 1) 거래처 선택 */}
-      <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="mt-5 rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
         <p className="flex items-center gap-1.5 text-sm font-bold text-slate-900">
           <Layers className="h-4 w-4" /> 김해공장 순회 납품 동선
         </p>
@@ -4865,7 +4863,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
 
       {/* 2) 방문 순서 비교 + 절감 효과 */}
       {result && (
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="mt-4 rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
           <p className="text-sm font-bold text-slate-900">방문 순서 비교</p>
           {result.origin?.name && (
             <p className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400">
@@ -4990,7 +4988,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
 
       {/* 3) 개인화 추천 — 이미 수락(납품중)한 거래처 근처에 대기중인 거래처가 있을 때 */}
       {groupsStatus === "ready" && personalGroups.length > 0 && (
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="mt-4 rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
           <div className="flex items-center justify-between">
             <p className="text-sm font-bold text-slate-900">이미 수락한 거래처 근처 추천</p>
             <button onClick={loadGroups} className="flex items-center gap-1 text-[11px] font-semibold text-slate-400">
@@ -5060,7 +5058,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
       )}
 
       {/* 4) 합짐 제안 */}
-      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="mt-4 rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
         <p className="text-sm font-bold text-slate-900">합짐 제안</p>
         <p className="mt-0.5 text-[11px] text-slate-400">거리가 가까운 거래처들을 한 차량에 같이 실을 수 있도록 묶어서 제안합니다.</p>
 
@@ -5469,7 +5467,7 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900">오늘일정</h1>
+        <h1 className="text-[22px] font-bold tracking-tight text-slate-900">오늘일정</h1>
         <div className="flex items-center gap-3">
           {isAdmin && (
             <button onClick={() => setShowRegisterForm((v) => !v)} className="flex items-center gap-1 text-xs font-bold" style={{ color: BRAND.deepGreen }}>
@@ -5481,11 +5479,11 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
           </button>
         </div>
       </div>
-      <div className="mt-2 flex items-center justify-between">
-        <p className="text-sm text-slate-400">일정 등록 → 대기중 → 수락 → 납품중 → 완료 순서로 진행됩니다.</p>
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <p className="break-keep text-[13px] text-slate-400">일정 등록 → 대기중 → 수락 → 납품중 → 완료 순서로 진행됩니다.</p>
         <button
           onClick={() => setShowMineOnly((v) => !v)}
-          className="flex flex-shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold"
+          className="flex flex-shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors"
           style={showMineOnly ? { backgroundColor: BRAND.greenSoft, color: BRAND.deepGreen } : { backgroundColor: "#f1f5f9", color: "#64748b" }}
         >
           <UserCircle2 className="h-3 w-3" /> {showMineOnly ? "내 담당만" : "전체 보기"}
@@ -5513,24 +5511,28 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
       {error && status !== "error" && <p className="mt-3 text-xs font-semibold text-red-500">{error}</p>}
 
       {status === "ready" && (
-        <div className="mt-5 space-y-5">
+        <div className="mt-6 space-y-6">
           <section>
-            <p className="text-xs font-bold text-slate-500">대기중 ({waiting.length})</p>
-            <div className="mt-2 space-y-3">
-              {waiting.length === 0 && <p className="py-6 text-center text-xs text-slate-400">대기중인 일정이 없습니다.</p>}
+            <div className="mb-2.5 flex items-center gap-2 px-0.5">
+              <span className="h-2 w-2 rounded-full bg-slate-300" />
+              <p className="text-[13px] font-bold text-slate-700">대기중</p>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">{waiting.length}</span>
+            </div>
+            <div className="space-y-2.5">
+              {waiting.length === 0 && <p className="rounded-2xl bg-white py-7 text-center text-xs text-slate-400 shadow-[0_1px_3px_rgba(16,24,40,0.05)]">대기중인 일정이 없습니다.</p>}
               {waiting.map((item) => {
                 const busy = busyId === item.dispatchId;
                 return (
-                  <div key={item.dispatchId} className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div key={item.dispatchId} className="rounded-[20px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
                     <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-sm font-bold text-slate-900">{item.customerName}</p>
-                        <p className="text-xs text-slate-400">{item.taskDescription}</p>
+                      <div className="min-w-0">
+                        <p className="text-[15px] font-semibold tracking-tight text-slate-900">{item.customerName}</p>
+                        <p className="mt-0.5 break-keep text-xs text-slate-400">{item.taskDescription}</p>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">{item.dispatchId}</span>
+                      <div className="flex flex-shrink-0 items-center gap-1">
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">{item.dispatchId}</span>
                         <button onClick={() => handleDelete(item)} disabled={busy} title="일정 삭제"
-                          className="flex h-6 w-6 items-center justify-center rounded-full text-slate-300 hover:text-red-500 disabled:opacity-50">
+                          className="flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-50">
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
@@ -5539,7 +5541,7 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                     <button
                       onClick={() => setAcceptTargetId(acceptTargetId === item.dispatchId ? null : item.dispatchId)}
                       disabled={busy}
-                      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50"
+                      className="mt-3.5 flex w-full items-center justify-center gap-1.5 rounded-xl py-3 text-xs font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
                       style={{ backgroundColor: BRAND.deepGreen }}
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" /> 수락
@@ -5560,9 +5562,13 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
           </section>
 
           <section>
-            <p className="text-xs font-bold text-slate-500">납품중 ({inDelivery.length})</p>
-            <div className="mt-2 space-y-3">
-              {inDelivery.length === 0 && <p className="py-6 text-center text-xs text-slate-400">납품중인 일정이 없습니다.</p>}
+            <div className="mb-2.5 flex items-center gap-2 px-0.5">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: BRAND.deepGreen }} />
+              <p className="text-[13px] font-bold text-slate-700">납품중</p>
+              <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: BRAND.greenSoft, color: BRAND.deepGreen }}>{inDelivery.length}</span>
+            </div>
+            <div className="space-y-2.5">
+              {inDelivery.length === 0 && <p className="rounded-2xl bg-white py-7 text-center text-xs text-slate-400 shadow-[0_1px_3px_rgba(16,24,40,0.05)]">납품중인 일정이 없습니다.</p>}
               {inDelivery.map((item) => {
                 const busy = busyId === item.dispatchId;
                 // 48번 요청 — "전체 보기" 모드에서는 다른 담당자의 납품중 항목도 보이지만,
@@ -5571,13 +5577,13 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                 // 수락자사번이 없는 과거 데이터는 안전하게 그대로 허용한다.
                 const isMyDelivery = !item.workerEmployeeId || isSameEmployeeId(item.workerEmployeeId, employee.employeeId) || isAdmin;
                 return (
-                  <div key={item.dispatchId} className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div key={item.dispatchId} className="rounded-[20px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
                     <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-sm font-bold text-slate-900">{item.customerName}</p>
-                        <p className="text-xs text-slate-400">{item.taskDescription}</p>
+                      <div className="min-w-0">
+                        <p className="text-[15px] font-semibold tracking-tight text-slate-900">{item.customerName}</p>
+                        <p className="mt-0.5 break-keep text-xs text-slate-400">{item.taskDescription}</p>
                       </div>
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">{item.dispatchId}</span>
+                      <span className="flex-shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">{item.dispatchId}</span>
                     </div>
 
                 {(() => {
@@ -5626,18 +5632,18 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                           </p>
                         )}
 
-                        <div className="mt-3 grid grid-cols-2 gap-2">
+                        <div className="mt-3.5 grid grid-cols-2 gap-2">
                           <button
                             onClick={() => handleNavigate(item)}
                             disabled={busy}
-                            className="flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-2.5 text-xs font-bold text-slate-700 disabled:opacity-50"
+                            className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 py-3 text-xs font-bold text-slate-700 transition-all active:scale-[0.98] disabled:opacity-50"
                           >
                             <Navigation className="h-3.5 w-3.5" /> {item.departedAt ? "길찾기 다시 열기" : "출발(카카오내비 길찾기)"}
                           </button>
                           <button
                             onClick={() => setReportTarget(item)}
                             disabled={busy}
-                            className="flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50"
+                            className="flex items-center justify-center gap-1.5 rounded-xl py-3 text-xs font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
                             style={{ backgroundColor: BRAND.deepGreen }}
                           >
                             <CheckCircle2 className="h-3.5 w-3.5" /> 완료 보고 제출
@@ -5657,13 +5663,17 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
 
           {completed.length > 0 && (
             <section>
-              <p className="text-xs font-bold text-slate-500">완료 ({completed.length})</p>
-              <div className="mt-2 space-y-2">
+              <div className="mb-2.5 flex items-center gap-2 px-0.5">
+                <span className="h-2 w-2 rounded-full bg-slate-300" />
+                <p className="text-[13px] font-bold text-slate-700">완료</p>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">{completed.length}</span>
+              </div>
+              <div className="space-y-2">
                 {completed.map((item) => (
-                  <div key={item.dispatchId} className="rounded-xl border border-slate-100 bg-slate-50 p-3.5">
+                  <div key={item.dispatchId} className="rounded-[18px] bg-slate-50 p-3.5">
                     <div className="flex items-center justify-between">
-                      <p className="text-sm font-bold text-slate-700">{item.customerName}</p>
-                      <span className="flex items-center gap-1 text-[11px] font-bold" style={{ color: BRAND.deepGreen }}>
+                      <p className="text-sm font-semibold text-slate-700">{item.customerName}</p>
+                      <span className="flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] font-bold" style={{ color: BRAND.deepGreen }}>
                         <CheckCircle2 className="h-3 w-3" /> 완료
                       </span>
                     </div>
@@ -5788,7 +5798,7 @@ function GimhaeScheduleRegisterForm({ employee, customers, onRegistered, onCance
           onChange={(e) => { setQuery(e.target.value); setSelectedCustomer(null); }}
           placeholder="거래처명으로 검색"
           disabled={submitting}
-          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
         />
         {!selectedCustomer && query.trim() && (
           <div className="mt-1.5 max-h-40 overflow-y-auto rounded-lg border border-slate-100">
@@ -5818,7 +5828,7 @@ function GimhaeScheduleRegisterForm({ employee, customers, onRegistered, onCance
           onChange={(e) => setTaskDescription(e.target.value)}
           placeholder="예: 정기 납품, 부품 회수 등"
           disabled={submitting}
-          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
         />
       </div>
 
@@ -5903,21 +5913,21 @@ function GimhaeDeliveryHistoryScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">납품경로 타임라인</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">납품경로 타임라인</h1>
       <p className="mt-1 text-sm text-slate-400">
         {isToday ? "오늘은 진행중인 배송까지 실시간으로 보여줍니다(30초마다 자동 새로고침)." : "그날 담당자별로 방문한 거래처 순서를 볼 수 있습니다."}
       </p>
 
       <div className="mt-4 flex items-center gap-2">
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
-          className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none" />
-        <button onClick={() => reload(date)} className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">
+          className="rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 text-sm text-slate-800 transition-colors focus:bg-white focus:outline-none" />
+        <button onClick={() => reload(date)} className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-600 transition-all active:scale-95 active:bg-slate-50">
           <RefreshCw className="h-3.5 w-3.5" /> 조회
         </button>
       </div>
 
       {status === "ready" && isToday && (
-        <p className="mt-3 flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-700">
+        <p className="mt-3 flex items-center gap-1.5 rounded-xl bg-amber-50 px-3 py-2.5 text-[11px] font-semibold text-amber-700">
           <Truck className="h-3.5 w-3.5 flex-shrink-0" /> 지금 이동중인 배송 {totalInProgress}건
         </p>
       )}
@@ -5927,16 +5937,16 @@ function GimhaeDeliveryHistoryScreen({ employee, onBack }) {
 
       {status === "ready" && (
         <div className="mt-5 space-y-3">
-          {drivers.length === 0 && <p className="py-8 text-center text-xs text-slate-400">이 날짜에 표시할 납품 기록이 없습니다.</p>}
+          {drivers.length === 0 && <p className="rounded-2xl bg-white py-8 text-center text-xs text-slate-400 shadow-[0_1px_3px_rgba(16,24,40,0.05)]">이 날짜에 표시할 납품 기록이 없습니다.</p>}
           {drivers.map((d) => {
             const collapsed = collapsedWorkers.has(d.workerName);
             const routeUrl = buildRouteMapUrl(d.stops);
             const missingCoordCount = d.stops.filter((s) => s.latitude == null || s.longitude == null).length;
             return (
-              <div key={d.workerName} className="rounded-xl border border-slate-200 bg-white p-4">
+              <div key={d.workerName} className="rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
                 <button onClick={() => toggleCollapsed(d.workerName)} className="flex w-full items-center justify-between text-left">
                   <span>
-                    <p className="text-sm font-bold text-slate-900">{d.workerName}</p>
+                    <p className="text-[15px] font-semibold tracking-tight text-slate-900">{d.workerName}</p>
                     <p className="text-xs text-slate-400">
                       납품 {d.stopCount}건{d.inProgressCount > 0 ? ` · 이동중 ${d.inProgressCount}건` : ""}
                     </p>
@@ -6048,7 +6058,7 @@ function GimhaeCustomerScreen({ employee, onBack }) {
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900">거래처정보</h1>
+        <h1 className="text-[22px] font-bold tracking-tight text-slate-900">거래처정보</h1>
         {isAdmin && (
           <button onClick={() => setShowAddForm((v) => !v)} className="flex items-center gap-1 text-xs font-bold" style={{ color: BRAND.deepGreen }}>
             <PlusCircle className="h-3.5 w-3.5" /> 거래처 등록
@@ -6077,23 +6087,25 @@ function GimhaeCustomerScreen({ employee, onBack }) {
 
       {status === "ready" && (
         <div className="mt-5 space-y-2">
-          {filtered.length === 0 && <p className="py-8 text-center text-xs text-slate-400">검색 결과가 없습니다.</p>}
+          {filtered.length === 0 && <p className="rounded-2xl bg-white py-8 text-center text-xs text-slate-400 shadow-[0_1px_3px_rgba(16,24,40,0.05)]">검색 결과가 없습니다.</p>}
           {filtered.map((c) => (
-            <div key={c.customerId} className="rounded-xl border border-slate-200 bg-white p-4">
+            <div key={c.customerId} className="rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-bold text-slate-900">{c.customerName}</p>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500">{c.customerId}</span>
+                <p className="text-[15px] font-semibold tracking-tight text-slate-900">{c.customerName}</p>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">{c.customerId}</span>
               </div>
-              <p className="mt-1 text-xs text-slate-500">{c.deliveryAddress}</p>
-              <div className="mt-1.5 flex items-center justify-between">
-                <p className="text-[11px] text-slate-400">
-                  {c.region ? `지역: ${c.region} · ` : ""}
+              <p className="mt-1 break-keep text-xs text-slate-500">{c.deliveryAddress}</p>
+              <div className="mt-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {c.region && <span className="text-[11px] text-slate-400">{c.region}</span>}
                   {c.latitude != null && c.longitude != null ? (
-                    <span style={{ color: BRAND.deepGreen }}>좌표 등록됨</span>
+                    <span className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: BRAND.greenSoft, color: BRAND.deepGreen }}>
+                      <Crosshair className="h-2.5 w-2.5" /> 좌표 등록됨
+                    </span>
                   ) : (
-                    <span className="font-semibold text-amber-600">좌표 미등록(지오펜싱 불가)</span>
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-600">좌표 미등록</span>
                   )}
-                </p>
+                </div>
                 {isAdmin && (
                   <button onClick={() => setEditTarget(editTarget?.customerId === c.customerId ? null : c)} className="text-[11px] font-semibold text-slate-400">
                     주소 수정
@@ -6180,18 +6192,18 @@ function GimhaeCustomerForm({ employee, mode, customer, onDone, onCancel }) {
         <div>
           <label className="text-xs font-semibold text-slate-500">거래처명 *</label>
           <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
         </div>
       )}
       <div>
         <label className="text-xs font-semibold text-slate-500">납품주소 *</label>
         <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="도로명 주소를 입력하면 자동으로 좌표가 계산됩니다" disabled={submitting}
-          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
       </div>
       <div>
         <label className="text-xs font-semibold text-slate-500">지역구분</label>
         <input value={region} onChange={(e) => setRegion(e.target.value)} disabled={submitting}
-          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
       </div>
 
       {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
@@ -6255,7 +6267,7 @@ function GimhaeVehicleScreen({ employee, onBack }) {
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900">차량관리</h1>
+        <h1 className="text-[22px] font-bold tracking-tight text-slate-900">차량관리</h1>
         {isAdmin && (
           <button onClick={() => setShowAddForm((v) => !v)} className="flex items-center gap-1 text-xs font-bold" style={{ color: BRAND.deepGreen }}>
             <PlusCircle className="h-3.5 w-3.5" /> 차량 등록
@@ -6281,27 +6293,27 @@ function GimhaeVehicleScreen({ employee, onBack }) {
           {vehicles.map((v) => {
             const expiringSoon = isExpiringSoon(v.insuranceExpiry);
             return (
-              <div key={v.label} className="rounded-xl border border-slate-200 bg-white p-4">
+              <div key={v.label} className="rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-bold text-slate-900">{v.label}</p>
+                  <p className="text-[15px] font-semibold tracking-tight text-slate-900">{v.label}</p>
                   <span className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: v.ownershipType === "법인" ? BRAND.deepGreen : "#94a3b8" }}>
                     {v.ownershipType || "구분 미입력"}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  현재 주행거리: {v.mileage ? `${v.mileage}km` : "0km"}
+                <p className="mt-1.5 text-xs text-slate-500">
+                  현재 주행거리: <span className="font-bold text-slate-700">{v.mileage ? `${Number(v.mileage).toLocaleString()}km` : "0km"}</span>
                   {v.fuelEfficiencyKmpl ? ` · 연비 ${v.fuelEfficiencyKmpl}km/L` : ""}
                 </p>
                 <p className="mt-1 text-[11px] text-slate-400">
                   보험 {v.insuranceStart || "-"} 시작 · {v.insurancePeriodYears ? `${v.insurancePeriodYears}년` : "-"} · 만료 {v.insuranceExpiry || "-"}
                 </p>
                 {expiringSoon && (
-                  <p className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-amber-600">
+                  <p className="mt-2 flex items-center gap-1 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-600">
                     <AlertTriangle className="h-3 w-3" /> 보험 만료 30일 이내 — 갱신 필요
                   </p>
                 )}
 
-                <div className="mt-2.5 flex items-center gap-3">
+                <div className="mt-3 flex items-center gap-3">
                   <button onClick={() => { setMileageTarget(mileageTarget === v.label ? null : v.label); setFuelTarget(null); setEditTarget(null); }} className="text-[11px] font-semibold" style={{ color: BRAND.deepGreen }}>
                     주행거리 등록
                   </button>
@@ -6388,7 +6400,7 @@ function GimhaeVehicleRegisterForm({ employee, onDone, onCancel }) {
       <div>
         <label className="text-xs font-semibold text-slate-500">차종(차량번호) *</label>
         <input value={vehicleLabel} onChange={(e) => setVehicleLabel(e.target.value)} placeholder="예: 카니발(12가3456)" disabled={submitting}
-          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
       </div>
       <div>
         <label className="text-xs font-semibold text-slate-500">구분</label>
@@ -6406,24 +6418,24 @@ function GimhaeVehicleRegisterForm({ employee, onDone, onCancel }) {
         <div>
           <label className="text-xs font-semibold text-slate-500">최초 주행거리(km)</label>
           <input type="number" value={initialMileage} onChange={(e) => setInitialMileage(e.target.value)} placeholder="0" disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500">연비(km/L)</label>
           <input type="number" step="0.1" value={fuelEfficiencyKmpl} onChange={(e) => setFuelEfficiencyKmpl(e.target.value)} placeholder="미입력 시 회사 평균값 적용" disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="text-xs font-semibold text-slate-500">보험 가입일</label>
           <input type="date" value={insuranceStartDate} onChange={(e) => setInsuranceStartDate(e.target.value)} disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500">보험 기간(년)</label>
           <input type="number" value={insurancePeriodYears} onChange={(e) => setInsurancePeriodYears(e.target.value)} placeholder="예: 1" disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
         </div>
       </div>
 
@@ -6483,13 +6495,13 @@ function VehicleMileageForm({ employee, vehicle, onDone, onCancel }) {
       <div>
         <label className="text-xs font-semibold text-slate-500">이번에 이동한 거리(km) *</label>
         <input type="number" step="0.1" value={distanceKm} onChange={(e) => setDistanceKm(e.target.value)} placeholder="예: 42.5" disabled={submitting}
-          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
         <p className="mt-1 text-[11px] text-slate-400">현재 누적 주행거리({vehicle.mileage || 0}km)에 이 거리만큼 더해집니다.</p>
       </div>
       <div>
         <label className="text-xs font-semibold text-slate-500">메모</label>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="선택 입력" disabled={submitting}
-          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
       </div>
 
       {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
@@ -6564,23 +6576,23 @@ function VehicleFuelPurchaseForm({ employee, vehicle, onDone, onCancel }) {
         <div>
           <label className="text-xs font-semibold text-slate-500">주유금액(원) *</label>
           <input type="text" inputMode="numeric" value={formatNumberWithCommas(amountWon)} onChange={(e) => setAmountWon(stripCommas(e.target.value))} placeholder="예: 70,000" disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500">주유량(L)</label>
           <input type="number" step="0.1" value={liters} onChange={(e) => setLiters(e.target.value)} placeholder="선택 입력" disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
         </div>
       </div>
       <div>
         <label className="text-xs font-semibold text-slate-500">주유 일자</label>
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={submitting}
-          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
       </div>
       <div>
         <label className="text-xs font-semibold text-slate-500">메모</label>
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="선택 입력" disabled={submitting}
-          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
       </div>
 
       {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
@@ -6643,18 +6655,18 @@ function VehicleInsuranceForm({ employee, vehicle, onDone, onCancel }) {
         <div>
           <label className="text-xs font-semibold text-slate-500">보험 가입일</label>
           <input type="date" value={insuranceStartDate} onChange={(e) => setInsuranceStartDate(e.target.value)} disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500">보험 기간(년)</label>
           <input type="number" value={insurancePeriodYears} onChange={(e) => setInsurancePeriodYears(e.target.value)} disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
         </div>
       </div>
       <div>
         <label className="text-xs font-semibold text-slate-500">연비(km/L)</label>
         <input type="number" step="0.1" value={fuelEfficiencyKmpl} onChange={(e) => setFuelEfficiencyKmpl(e.target.value)} placeholder="미입력 시 회사 평균값 적용" disabled={submitting}
-          className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
       </div>
 
       {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
@@ -6702,13 +6714,13 @@ function FuelCostDashboardScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">유류비 관리</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">유류비 관리</h1>
       <p className="mt-1 text-sm text-slate-400">월별 차량별 주행거리 기반 "예상 유류비"와, 주유 등록으로 쌓인 "실제 주유비"를 함께 보여줍니다.</p>
 
       <div className="mt-4 flex items-center gap-2">
         <input type="month" value={yearMonth} onChange={(e) => setYearMonth(e.target.value)}
-          className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none" />
-        <button onClick={() => reload(yearMonth)} className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">
+          className="rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 text-sm text-slate-800 transition-colors focus:bg-white focus:outline-none" />
+        <button onClick={() => reload(yearMonth)} className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-600 transition-all active:scale-95 active:bg-slate-50">
           <RefreshCw className="h-3.5 w-3.5" /> 조회
         </button>
       </div>
@@ -6719,40 +6731,40 @@ function FuelCostDashboardScreen({ employee, onBack }) {
       {status === "ready" && dashboard && (
         <>
           <div className="mt-5 grid grid-cols-2 gap-2">
-            <div className="rounded-xl p-4 text-white" style={{ backgroundColor: BRAND.deepGreen }}>
-              <p className="text-xs opacity-80">{dashboard.yearMonth} 예상 유류비</p>
-              <p className="mt-1 text-xl font-bold">{Number(dashboard.totalFuelCost || 0).toLocaleString()}원</p>
-              <p className="mt-0.5 text-[11px] opacity-80">총 주행거리 {Number(dashboard.totalDistanceKm || 0).toLocaleString()}km</p>
+            <div className="rounded-2xl p-4 text-white" style={{ background: `linear-gradient(135deg, ${BRAND.deepGreen} 0%, ${BRAND.deepGreenDark} 100%)`, boxShadow: "0 8px 20px -10px rgba(14,92,48,0.5)" }}>
+              <p className="text-[11px] opacity-70">{dashboard.yearMonth} 예상 유류비</p>
+              <p className="mt-1 text-xl font-extrabold tracking-tight">{Number(dashboard.totalFuelCost || 0).toLocaleString()}원</p>
+              <p className="mt-0.5 text-[11px] opacity-70">총 주행거리 {Number(dashboard.totalDistanceKm || 0).toLocaleString()}km</p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs text-slate-400">{dashboard.yearMonth} 실제 주유비</p>
-              <p className="mt-1 text-xl font-bold text-slate-800">{Number(dashboard.totalActualFuelCost || 0).toLocaleString()}원</p>
+            <div className="rounded-2xl bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
+              <p className="text-[11px] text-slate-400">{dashboard.yearMonth} 실제 주유비</p>
+              <p className="mt-1 text-xl font-extrabold tracking-tight text-slate-800">{Number(dashboard.totalActualFuelCost || 0).toLocaleString()}원</p>
               <p className="mt-0.5 text-[11px] text-slate-400">주유 영수증 등록 기준</p>
             </div>
           </div>
 
           <div className="mt-4 space-y-2">
-            {dashboard.vehicles.length === 0 && <p className="py-8 text-center text-xs text-slate-400">등록된 차량이 없습니다.</p>}
+            {dashboard.vehicles.length === 0 && <p className="rounded-2xl bg-white py-8 text-center text-xs text-slate-400 shadow-[0_1px_3px_rgba(16,24,40,0.05)]">등록된 차량이 없습니다.</p>}
             {dashboard.vehicles.map((v) => (
-              <div key={v.vehicleLabel} className="rounded-xl border border-slate-200 bg-white p-4">
+              <div key={v.vehicleLabel} className="rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-bold text-slate-900">{v.vehicleLabel}</p>
+                  <p className="text-[15px] font-semibold tracking-tight text-slate-900">{v.vehicleLabel}</p>
                   <span className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: v.ownershipType === "법인" ? BRAND.deepGreen : "#94a3b8" }}>
                     {v.ownershipType || "구분 미입력"}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1.5 text-xs text-slate-500">
                   주행거리 {Number(v.totalDistanceKm || 0).toLocaleString()}km · 등록 {v.logCount}건
                   {v.fuelEfficiencyKmpl ? ` · 연비 ${v.fuelEfficiencyKmpl}km/L` : " · 연비 미등록(회사 평균값 적용)"}
                 </p>
-                <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-2 text-center">
+                <div className="mt-2.5 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-2.5 text-center">
                   <div>
                     <p className="text-[10px] text-slate-400">예상 유류비</p>
-                    <p className="text-sm font-bold" style={{ color: BRAND.deepGreen }}>{Number(v.totalFuelCost || 0).toLocaleString()}원</p>
+                    <p className="mt-0.5 text-sm font-bold" style={{ color: BRAND.deepGreen }}>{Number(v.totalFuelCost || 0).toLocaleString()}원</p>
                   </div>
                   <div>
                     <p className="text-[10px] text-slate-400">실제 주유비({v.fuelPurchaseCount || 0}건)</p>
-                    <p className="text-sm font-bold text-slate-700">{Number(v.actualFuelCost || 0).toLocaleString()}원</p>
+                    <p className="mt-0.5 text-sm font-bold text-slate-700">{Number(v.actualFuelCost || 0).toLocaleString()}원</p>
                   </div>
                 </div>
               </div>
@@ -6802,7 +6814,7 @@ function WorkInstructionScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">작업지시서</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">작업지시서</h1>
       <p className="mt-1 text-sm text-slate-400">PART NO로 목형별 작업규칙(압력·수량·주의사항 등)을 확인합니다.</p>
 
       {/* 검색 */}
@@ -6839,10 +6851,10 @@ function WorkInstructionScreen({ employee, onBack }) {
       {status === "ready" && results.length > 0 && (
         <div className="mt-5 space-y-3">
           {results.map((it) => (
-            <div key={it.partNo} className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div key={it.partNo} className="rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-base font-bold text-slate-900">{it.partNo}</p>
+                  <p className="text-[16px] font-bold tracking-tight text-slate-900">{it.partNo}</p>
                   {it.moldNo && <p className="text-xs text-slate-400">목형번호 {it.moldNo}</p>}
                 </div>
                 <button onClick={() => setShowRegister(it)} className="text-xs font-bold text-slate-400">수정</button>
@@ -6850,13 +6862,13 @@ function WorkInstructionScreen({ employee, onBack }) {
 
               {/* 핵심 규칙 — 압력/수량 강조 */}
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <div className="rounded-xl bg-slate-50 p-3 text-center">
-                  <p className="text-[10px] text-slate-400">압력</p>
-                  <p className="mt-0.5 text-lg font-extrabold" style={{ color: BRAND.deepGreen }}>{it.pressure || "-"}</p>
+                <div className="rounded-2xl p-3 text-center" style={{ backgroundColor: BRAND.greenSoft }}>
+                  <p className="text-[10px] font-semibold text-slate-400">압력</p>
+                  <p className="mt-0.5 text-xl font-extrabold tracking-tight" style={{ color: BRAND.deepGreen }}>{it.pressure || "-"}</p>
                 </div>
-                <div className="rounded-xl bg-slate-50 p-3 text-center">
-                  <p className="text-[10px] text-slate-400">찍는 수량(1회)</p>
-                  <p className="mt-0.5 text-lg font-extrabold text-slate-700">{it.punchQty || "-"}</p>
+                <div className="rounded-2xl bg-slate-50 p-3 text-center">
+                  <p className="text-[10px] font-semibold text-slate-400">찍는 수량(1회)</p>
+                  <p className="mt-0.5 text-xl font-extrabold tracking-tight text-slate-700">{it.punchQty || "-"}</p>
                 </div>
               </div>
 
@@ -7069,7 +7081,7 @@ function MoldLocationScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">목형 위치 찾기</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">목형 위치 찾기</h1>
       <p className="mt-1 text-sm text-slate-400">PART NO로 목형이 어느 동·구역·열에 있는지 찾습니다.</p>
 
       {/* 검색 */}
@@ -7115,17 +7127,17 @@ function MoldLocationScreen({ employee, onBack }) {
       {status === "ready" && results.length > 0 && (
         <div className="mt-5 space-y-3">
           {results.map((m) => (
-            <div key={m.partNo} className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-base font-bold text-slate-900">{m.partNo}</p>
+            <div key={m.partNo} className="rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[16px] font-bold tracking-tight text-slate-900">{m.partNo}</p>
                   {m.moldNo && <p className="text-xs text-slate-400">목형번호 {m.moldNo}</p>}
                 </div>
-                <span className="flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-extrabold text-white" style={{ backgroundColor: BRAND.deepGreen }}>
+                <span className="flex h-9 flex-shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-extrabold text-white" style={{ backgroundColor: BRAND.deepGreen }}>
                   <MapPin className="h-4 w-4" /> {locationText(m)}
                 </span>
               </div>
-              {m.note && <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">메모: {m.note}</p>}
+              {m.note && <p className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">메모: {m.note}</p>}
 
               {/* 도면 핀 — 좌표가 있으면 표시(도면 이미지는 추후 추가되면 그 위에 겹쳐짐) */}
               {m.pinX != null && m.pinY != null ? (
@@ -7315,7 +7327,7 @@ function ProductionDashboardScreen({ employee, onBack }) {
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900">실시간 생산 대시보드</h1>
+        <h1 className="text-[22px] font-bold tracking-tight text-slate-900">실시간 생산 대시보드</h1>
         <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
           <RefreshCw className="h-3.5 w-3.5" /> 새로고침
         </button>
@@ -7333,15 +7345,15 @@ function ProductionDashboardScreen({ employee, onBack }) {
         <>
           {/* 상단 요약 카드 */}
           <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-            <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <div className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
               <p className="text-[11px] text-slate-400">총 생산량</p>
               <p className="mt-1 text-lg font-extrabold" style={{ color: BRAND.deepGreen }}>{Number(data.totalQuantity).toLocaleString()}</p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <div className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
               <p className="text-[11px] text-slate-400">총 기록</p>
               <p className="mt-1 text-lg font-extrabold text-slate-700">{data.totalRows}건</p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <div className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
               <p className="text-[11px] text-slate-400">완료 진행률</p>
               <p className="mt-1 text-lg font-extrabold text-slate-700">{data.progressPct}%</p>
             </div>
@@ -7360,7 +7372,7 @@ function ProductionDashboardScreen({ employee, onBack }) {
                   {data.byStatus.map((s) => {
                     const pct = data.totalRows > 0 ? Math.round((s.count / data.totalRows) * 100) : 0;
                     return (
-                      <div key={s.status} className="rounded-xl border border-slate-200 bg-white p-3">
+                      <div key={s.status} className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
                         <div className="flex items-center justify-between text-xs">
                           <span className="font-bold" style={{ color: statusColor(s.status) }}>{s.status}</span>
                           <span className="text-slate-500">{s.count}건 · {pct}%</span>
@@ -7408,7 +7420,7 @@ function RankBarList({ items, unit }) {
   return (
     <div className="space-y-2">
       {items.map((it) => (
-        <div key={it.label} className="rounded-xl border border-slate-200 bg-white p-3">
+        <div key={it.label} className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
           <div className="flex items-center justify-between text-xs">
             <span className="font-bold text-slate-800">{it.label}</span>
             <span className="font-semibold text-slate-500">{Number(it.value).toLocaleString()}{unit}</span>
@@ -7437,7 +7449,7 @@ function HourlyProductionChart({ series }) {
   const height = chartH + labelH + topPad;
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-3">
+    <div className="overflow-x-auto rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
       <svg width={width} height={height} style={{ minWidth: "100%" }}>
         {series.map((s, i) => {
           const x = 4 + i * (barW + gap);
@@ -7548,11 +7560,11 @@ function ProductionLogScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">생산일보 등록</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">생산일보 등록</h1>
       <p className="mt-1 text-sm text-slate-400">{todayStr} · 한 줄씩 연달아 등록하세요. 각 줄은 작성 즉시 위·변조 방지 기록으로 저장됩니다.</p>
 
       {/* 입력 폼 */}
-      <div className="mt-5 space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="mt-5 space-y-3 rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
         <div>
           <label className="text-xs font-semibold text-slate-500">PART NO *</label>
           <div className="mt-1.5 flex items-center gap-2">
@@ -7647,7 +7659,7 @@ function ProductionLogScreen({ employee, onBack }) {
         {status === "ready" && logs.length > 0 && (
           <div className="mt-3 space-y-2">
             {logs.map((log) => (
-              <div key={log.logId} className="rounded-xl border border-slate-200 bg-white p-3">
+              <div key={log.logId} className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold text-slate-900">{log.partNo}</span>
@@ -7718,7 +7730,7 @@ function GimhaeUrgentRequestScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">업체 긴급요청</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">업체 긴급요청</h1>
       <p className="mt-1 text-sm text-slate-400">거래처 현장에서 급하게 들어온 요청을 등록해주세요. 등록되면 전체 알림에 빨간색으로 표시됩니다.</p>
 
       {done ? (
@@ -7733,7 +7745,7 @@ function GimhaeUrgentRequestScreen({ employee, onBack }) {
           <div>
             <label className="text-xs font-semibold text-slate-500">거래처명(선택)</label>
             <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="예: (주)네오플라테크창원" disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">요청 내용 *</label>
@@ -7808,19 +7820,18 @@ function InventoryLedgerScreen({ employee, onBack }) {
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900">월별 수불표</h1>
+        <h1 className="text-[22px] font-bold tracking-tight text-slate-900">월별 수불표</h1>
         <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
           <RefreshCw className="h-3.5 w-3.5" /> 새로고침
         </button>
       </div>
-      <p className="mt-1 text-sm text-slate-400">전월재고 + 입고 − 출고 = 당월재고. 일자별 상세는 엑셀에서 볼 수 있어요.</p>
+      <p className="mt-1 break-keep text-[13px] text-slate-400">전월재고 + 입고 − 출고 = 당월재고. 일자별 상세는 엑셀에서 볼 수 있어요.</p>
 
-      {/* 탭 */}
-      <div className="mt-4 flex gap-2">
+      {/* 세그먼트 탭 */}
+      <div className="mt-4 flex gap-1 rounded-2xl bg-slate-100 p-1">
         {["원자재", "완제품"].map((k) => (
           <button key={k} onClick={() => setKind(k)}
-            className={`flex-1 rounded-lg py-2.5 text-sm font-bold ${kind === k ? "text-white" : "border border-slate-200 text-slate-500"}`}
-            style={kind === k ? { backgroundColor: BRAND.deepGreen } : {}}>
+            className={`flex-1 rounded-xl py-2.5 text-sm font-bold transition-all ${kind === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-400"}`}>
             {k}
           </button>
         ))}
@@ -7828,9 +7839,9 @@ function InventoryLedgerScreen({ employee, onBack }) {
 
       <div className="mt-3 flex items-center gap-2">
         <input type="month" value={ym} onChange={(e) => setYm(e.target.value)}
-          className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none" />
+          className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 text-sm text-slate-800 transition-colors focus:bg-white focus:outline-none" />
         <button onClick={exportToExcel} disabled={!data || data.items.length === 0}
-          className="flex h-[42px] flex-shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-40" style={{ backgroundColor: BRAND.deepGreen }}>
+          className="flex h-[46px] flex-shrink-0 items-center gap-1.5 rounded-xl px-3.5 text-xs font-bold text-white transition-all active:scale-95 disabled:opacity-40" style={{ backgroundColor: BRAND.deepGreen }}>
           <Download className="h-4 w-4" /> 엑셀
         </button>
       </div>
@@ -7845,25 +7856,25 @@ function InventoryLedgerScreen({ employee, onBack }) {
       {status === "ready" && data && data.items.length > 0 && (
         <div className="mt-4 space-y-2">
           {data.items.map((it) => (
-            <div key={it.partNo} className="rounded-xl border border-slate-200 bg-white p-3">
+            <div key={it.partNo} className="rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-slate-900">{it.partNo}</span>
-                <span className={`text-sm font-extrabold ${it.closingStock < 0 ? "text-red-500" : "text-slate-700"}`}>
+                <span className="text-[15px] font-semibold tracking-tight text-slate-900">{it.partNo}</span>
+                <span className={`text-[13px] font-extrabold tracking-tight ${it.closingStock < 0 ? "text-red-500" : "text-slate-800"}`}>
                   당월재고 {Number(it.closingStock).toLocaleString()}
                 </span>
               </div>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-lg bg-slate-50 py-1.5">
+              <div className="mt-2.5 grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-xl bg-slate-50 py-2">
                   <p className="text-[10px] text-slate-400">전월재고</p>
-                  <p className="text-sm font-bold text-slate-600">{Number(it.openingStock).toLocaleString()}</p>
+                  <p className="mt-0.5 text-sm font-bold text-slate-600">{Number(it.openingStock).toLocaleString()}</p>
                 </div>
-                <div className="rounded-lg bg-green-50 py-1.5">
+                <div className="rounded-xl py-2" style={{ backgroundColor: BRAND.greenSoft }}>
                   <p className="text-[10px] text-slate-400">입고</p>
-                  <p className="text-sm font-bold" style={{ color: BRAND.deepGreen }}>+{Number(it.totalIn).toLocaleString()}</p>
+                  <p className="mt-0.5 text-sm font-bold" style={{ color: BRAND.deepGreen }}>+{Number(it.totalIn).toLocaleString()}</p>
                 </div>
-                <div className="rounded-lg bg-red-50 py-1.5">
+                <div className="rounded-xl bg-red-50 py-2">
                   <p className="text-[10px] text-slate-400">출고</p>
-                  <p className="text-sm font-bold text-red-500">−{Number(it.totalOut).toLocaleString()}</p>
+                  <p className="mt-0.5 text-sm font-bold text-red-500">−{Number(it.totalOut).toLocaleString()}</p>
                 </div>
               </div>
             </div>
@@ -7926,19 +7937,18 @@ function InventoryStatusScreen({ employee, onBack }) {
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900">재고 현황</h1>
+        <h1 className="text-[22px] font-bold tracking-tight text-slate-900">재고 현황</h1>
         <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
           <RefreshCw className="h-3.5 w-3.5" /> 새로고침
         </button>
       </div>
-      <p className="mt-1 text-sm text-slate-400">재고이동 기록을 합산한 현재 재고입니다(기초 + 입고 − 출고).</p>
+      <p className="mt-1 break-keep text-[13px] text-slate-400">재고이동 기록을 합산한 현재 재고입니다(기초 + 입고 − 출고).</p>
 
-      {/* 탭 */}
-      <div className="mt-4 flex gap-2">
+      {/* 세그먼트 탭 — iOS 스타일 */}
+      <div className="mt-4 flex gap-1 rounded-2xl bg-slate-100 p-1">
         {["원자재", "완제품"].map((k) => (
           <button key={k} onClick={() => setKind(k)}
-            className={`flex-1 rounded-lg py-2.5 text-sm font-bold ${kind === k ? "text-white" : "border border-slate-200 text-slate-500"}`}
-            style={kind === k ? { backgroundColor: BRAND.deepGreen } : {}}>
+            className={`flex-1 rounded-xl py-2.5 text-sm font-bold transition-all ${kind === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-400"}`}>
             {k}
           </button>
         ))}
@@ -7946,16 +7956,17 @@ function InventoryStatusScreen({ employee, onBack }) {
 
       {/* 원자재일 때만 총 금액가치 카드 */}
       {isMaterial && data && (
-        <div className="mt-4 rounded-xl p-4 text-white" style={{ backgroundColor: BRAND.deepGreen }}>
-          <p className="text-xs text-green-100">원자재 총 금액가치</p>
-          <p className="mt-1 text-2xl font-extrabold">{Number(data.totalValue || 0).toLocaleString()}원</p>
+        <div className="mt-4 overflow-hidden rounded-2xl p-5 text-white" style={{ background: `linear-gradient(135deg, ${BRAND.deepGreen} 0%, ${BRAND.deepGreenDark} 100%)`, boxShadow: "0 10px 24px -12px rgba(14,92,48,0.5)" }}>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">TOTAL VALUE</p>
+          <p className="mt-1 text-[13px] text-white/70">원자재 총 금액가치</p>
+          <p className="mt-1 text-[26px] font-extrabold tracking-tight">{Number(data.totalValue || 0).toLocaleString()}<span className="ml-0.5 text-base font-bold text-white/70">원</span></p>
         </div>
       )}
 
       <div className="mt-4 flex items-center justify-between">
         <span className="text-xs font-semibold text-slate-500">{data ? `${data.items.length}개 품목` : ""}</span>
         <button onClick={exportToExcel} disabled={!data || data.items.length === 0}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold text-white disabled:opacity-40" style={{ backgroundColor: BRAND.deepGreen }}>
+          className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold text-white transition-all active:scale-95 disabled:opacity-40" style={{ backgroundColor: BRAND.deepGreen }}>
           <Download className="h-4 w-4" /> 엑셀 다운로드
         </button>
       </div>
@@ -7963,21 +7974,21 @@ function InventoryStatusScreen({ employee, onBack }) {
       {status === "loading" && <p className="mt-6 text-center text-xs text-slate-400">불러오는 중...</p>}
       {status === "error" && <p className="mt-6 text-center text-xs font-semibold text-red-500">{error}</p>}
       {status === "ready" && data && data.items.length === 0 && (
-        <p className="mt-8 text-center text-xs text-slate-400">해당 재고 기록이 없습니다. 기초재고를 먼저 등록하거나 입고를 진행해주세요.</p>
+        <p className="mt-8 break-keep text-center text-xs text-slate-400">해당 재고 기록이 없습니다. 기초재고를 먼저 등록하거나 입고를 진행해주세요.</p>
       )}
 
       {status === "ready" && data && data.items.length > 0 && (
         <div className="mt-3 space-y-2">
           {data.items.map((it) => (
-            <div key={`${it.kind}-${it.partNo}`} className="rounded-xl border border-slate-200 bg-white p-3">
+            <div key={`${it.kind}-${it.partNo}`} className="rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-slate-900">{it.partNo}</span>
-                <span className={`text-sm font-extrabold ${it.quantity < 0 ? "text-red-500" : "text-slate-700"}`}>
+                <span className="text-[15px] font-semibold tracking-tight text-slate-900">{it.partNo}</span>
+                <span className={`text-[17px] font-extrabold tracking-tight ${it.quantity < 0 ? "text-red-500" : "text-slate-800"}`}>
                   {Number(it.quantity).toLocaleString()}
                 </span>
               </div>
-              <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-                <span>{it.location || "위치 미지정"}</span>
+              <div className="mt-1.5 flex items-center justify-between text-[11.5px] text-slate-400">
+                <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{it.location || "위치 미지정"}</span>
                 {isMaterial && (
                   <span>
                     {it.unitPrice != null ? `단가 ${Number(it.unitPrice).toLocaleString()}` : "단가 미등록"}
@@ -7986,7 +7997,7 @@ function InventoryStatusScreen({ employee, onBack }) {
                 )}
               </div>
               {it.quantity < 0 && (
-                <p className="mt-1 text-[10px] font-semibold text-red-400">※ 재고가 음수입니다 — 기초재고 미등록 또는 출고 과다일 수 있어요.</p>
+                <p className="mt-2 rounded-lg bg-red-50 px-2.5 py-1.5 text-[10px] font-semibold text-red-500">※ 재고가 음수입니다 — 기초재고 미등록 또는 출고 과다일 수 있어요.</p>
               )}
             </div>
           ))}
@@ -8040,17 +8051,17 @@ function InitialInventoryScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">기초재고 등록</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">기초재고 등록</h1>
       <p className="mt-1 text-sm text-slate-400">재고관리를 시작하는 현재 시점의 재고를 입력하세요. 이후 입고·출고는 자동으로 이 재고에서 더하고 빼집니다.</p>
 
       <div className="mt-5 space-y-4">
         {/* 재고구분 */}
         <div>
           <label className="text-xs font-semibold text-slate-500">재고구분 *</label>
-          <div className="mt-1.5 flex gap-2">
+          <div className="mt-1.5 flex gap-1 rounded-2xl bg-slate-100 p-1">
             {["원자재", "완제품"].map((k) => (
               <button key={k} onClick={() => { setKind(k); if (k === "완제품") setItems((prev) => prev.map((it) => ({ ...it, unitPrice: "" }))); }} disabled={submitting}
-                className={`flex-1 rounded-lg py-2.5 text-sm font-bold ${kind === k ? "text-white" : "border border-slate-200 text-slate-500"}`}
+                className={`flex-1 rounded-xl py-2.5 text-sm font-bold transition-all ${kind === k ? "text-white shadow-sm" : "text-slate-400"}`}
                 style={kind === k ? { backgroundColor: BRAND.deepGreen } : {}}>
                 {k}
               </button>
@@ -8073,7 +8084,7 @@ function InitialInventoryScreen({ employee, onBack }) {
           </div>
           <div className="mt-2 space-y-3">
             {items.map((it, idx) => (
-              <div key={idx} className="rounded-xl border border-slate-200 bg-white p-3">
+              <div key={idx} className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold text-slate-400">품목 {idx + 1}</span>
                   {items.length > 1 && (
@@ -8225,15 +8236,14 @@ function InvoiceIntakeScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">거래명세표 입고</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">거래명세표 입고</h1>
       <p className="mt-1 text-sm text-slate-400">명세표를 사진으로 찍어 보면서 품목을 입력하세요. 저장된 자료는 엑셀로 내려받을 수 있습니다.</p>
 
-      {/* 탭 */}
-      <div className="mt-4 flex gap-2">
+      {/* 세그먼트 탭 */}
+      <div className="mt-4 flex gap-1 rounded-2xl bg-slate-100 p-1">
         {[["register", "입고 등록"], ["list", "조회 · 엑셀"]].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
-            className={`flex-1 rounded-lg py-2 text-xs font-bold ${tab === key ? "text-white" : "border border-slate-200 text-slate-500"}`}
-            style={tab === key ? { backgroundColor: BRAND.deepGreen } : {}}>
+            className={`flex-1 rounded-xl py-2.5 text-xs font-bold transition-all ${tab === key ? "bg-white text-slate-900 shadow-sm" : "text-slate-400"}`}>
             {label}
           </button>
         ))}
@@ -8271,7 +8281,7 @@ function InvoiceIntakeScreen({ employee, onBack }) {
             </div>
             <div className="mt-2 space-y-3">
               {items.map((it, idx) => (
-                <div key={idx} className="rounded-xl border border-slate-200 bg-white p-3">
+                <div key={idx} className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-slate-400">품목 {idx + 1}</span>
                     {items.length > 1 && (
@@ -8317,7 +8327,7 @@ function InvoiceIntakeScreen({ employee, onBack }) {
           {listStatus === "ready" && records.length > 0 && (
             <div className="mt-4 space-y-2">
               {records.map((r, idx) => (
-                <div key={`${r.invoiceId}-${idx}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                <div key={`${r.invoiceId}-${idx}`} className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-bold text-slate-900">{r.partNo}</span>
                     <span className="text-[11px] text-slate-400">{r.intakeDate}</span>
@@ -8429,11 +8439,11 @@ function ProductionPriorityScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">생산 우선순위 지정</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">생산 우선순위 지정</h1>
       <p className="mt-1 text-sm text-slate-400">특정 생산자에게 "이 PART NO를 우선 생산해달라"고 지정하면, 그 사람에게만 알림이 갑니다.</p>
 
       {/* 지정 폼 */}
-      <form onSubmit={handleCreate} className="mt-5 space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+      <form onSubmit={handleCreate} className="mt-5 space-y-3 rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
         <div>
           <label className="text-xs font-semibold text-slate-500">지정할 생산자 *</label>
           <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={submitting}
@@ -8448,7 +8458,7 @@ function ProductionPriorityScreen({ employee, onBack }) {
           <label className="text-xs font-semibold text-slate-500">PART NO</label>
           <div className="mt-1.5 flex items-center gap-2">
             <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} placeholder="바코드 스캔 또는 입력" disabled={submitting}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
             <button type="button" onClick={() => setScannerOpen(true)} disabled={submitting}
               className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }} title="바코드 스캔">
               <ScanLine className="h-4 w-4" />
@@ -8500,7 +8510,7 @@ function ProductionPriorityScreen({ employee, onBack }) {
               const amRequester = isMe(p.requesterId);
               const busy = busyId === p.priorityId;
               return (
-                <div key={p.priorityId} className={`rounded-xl border p-3 ${amTarget ? "border-green-200 bg-green-50/40" : "border-slate-200 bg-white"}`}>
+                <div key={p.priorityId} className={`rounded-[16px] p-3.5 ${amTarget ? "bg-green-50/50 ring-1 ring-green-200" : "bg-white shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]"}`}>
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-2">
@@ -8587,7 +8597,7 @@ function ProductionUrgentRequestScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-xl font-bold text-slate-900">생산 긴급요청</h1>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">생산 긴급요청</h1>
       <p className="mt-1 text-sm text-slate-400">급하게 필요한 생산 요청을 등록해주세요. 등록되면 전체 알림에 빨간색으로 표시되고 푸시가 발송됩니다.</p>
 
       {done ? (
@@ -8603,7 +8613,7 @@ function ProductionUrgentRequestScreen({ employee, onBack }) {
             <label className="text-xs font-semibold text-slate-500">PART NO(선택)</label>
             <div className="mt-1.5 flex items-center gap-2">
               <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} placeholder="바코드 스캔 또는 직접 입력" disabled={submitting}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
               <button type="button" onClick={() => setScannerOpen(true)} disabled={submitting}
                 className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-lg text-white disabled:opacity-50"
                 style={{ backgroundColor: BRAND.deepGreen }} title="바코드 스캔">
@@ -8740,20 +8750,17 @@ function GimhaeHome({ employee }) {
   ];
 
   return (
-    <main className="mx-auto max-w-3xl px-5 py-6">
-      {/* 상단 인사 배너 — 애플풍의 넉넉한 여백과 은은한 그라데이션 */}
-      <div className="overflow-hidden rounded-[28px] px-6 py-7 text-white" style={{ background: `linear-gradient(150deg, ${BRAND.deepGreen} 0%, ${BRAND.deepGreenDark} 100%)`, boxShadow: "0 10px 30px -12px rgba(14,92,48,0.5)" }}>
-        <h1 className="text-[22px] font-bold leading-tight tracking-tight">김해공장 물류·생산·재고 관리</h1>
-        <p className="mt-2.5 max-w-[92%] break-keep text-[13.5px] leading-relaxed text-white/75">
-          {employee.name}{employee.title} · {
-            employee.role === "관리자"
-              ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다."
-              : employee.role === "지원"
-              ? "지원 권한으로 일부 메뉴를 임시로 사용할 수 있습니다."
-              : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 오늘일정 조회/완료처리가 가능합니다.`
-          }
-        </p>
-      </div>
+    <main className="mx-auto max-w-3xl px-5 py-7">
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">김해공장 물류·생산·재고 관리</h1>
+      <p className="mt-1.5 break-keep text-[13.5px] leading-relaxed text-slate-400">
+        {employee.name}{employee.title} · {
+          employee.role === "관리자"
+            ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다."
+            : employee.role === "지원"
+            ? "지원 권한으로 일부 메뉴를 임시로 사용할 수 있습니다."
+            : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 오늘일정 조회/완료처리가 가능합니다.`
+        }
+      </p>
 
       {teamSections.map((section) => (
         <section key={section.team} className="mt-8">
