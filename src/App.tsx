@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   Users,
   ClipboardList,
+  Check,
   ChevronLeft,
   Trash2,
   CalendarRange,
@@ -1758,7 +1759,7 @@ function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout, onOpenNoti
           <div className="min-w-0">
             <p className="whitespace-nowrap text-[15px] font-bold tracking-tight text-slate-900">그린산업(주)</p>
             <p className="truncate text-[11px] text-slate-400">
-              {site ? site.label : "알 수 없는 근무지"} · {site ? site.role : ""}
+              {site ? site.label : "알 수 없는 근무지"}
             </p>
           </div>
         </div>
@@ -4074,6 +4075,10 @@ function ChangwonHome({ employee }) {
             : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 입출고 등록/조회가 가능합니다.`
         }
       </p>
+      <p className="mt-2 flex items-center gap-1.5 text-[12px] text-slate-400">
+        <MapPin className="h-3.5 w-3.5 flex-shrink-0" style={{ color: BRAND.deepGreen }} />
+        경남 창원시 마산회원구 자유무역4길 49
+      </p>
 
       <div className="mt-8 grid grid-cols-2 gap-3">
         {menuCards.map((card) => {
@@ -5324,6 +5329,22 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
   // "대기중"은 누구나 가져갈 수 있는 공용 풀이라 이 토글의 영향을 받지 않는다.
   const [showMineOnly, setShowMineOnly] = useState(true);
 
+  // 선택 삭제 모드 — "선택 삭제" 버튼을 누르면 대기중/납품중 카드에 체크박스가 나타나고,
+  // 여러 개를 골라 한 번에 삭제할 수 있다. 완료된 일정은 선택 대상에서 제외한다.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  const toggleSelected = (dispatchId) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(dispatchId)) next.delete(dispatchId);
+      else next.add(dispatchId);
+      return next;
+    });
+  };
+  const exitSelectMode = () => { setSelectMode(false); setSelectedIds(new Set()); };
+
   // 49번 요청 — "출발지" 명시 입력 + 3km 지오펜싱.
   // defaultOrigin: 서버가 정해주는 출발지 기본값(오늘 직전에 완료한 곳, 없으면
   // 김해공장). 화면에 입력칸을 새로 그릴 때마다 이 값으로 미리 채워준다.
@@ -5413,6 +5434,28 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
     }
   };
 
+  // 선택 삭제 — 체크한 대기중/납품중 일정을 한 번에 삭제한다. 완료 건은 애초에
+  // 선택 대상이 아니지만, 혹시 섞여 들어와도 서버가 거부한다. 하나씩 순차 삭제한다.
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`선택한 ${ids.length}건의 일정을 삭제할까요? 되돌릴 수 없습니다.`)) return;
+    setBulkDeleting(true);
+    setError("");
+    let failCount = 0;
+    for (const id of ids) {
+      try {
+        await deleteGimhaeSchedule(employee.employeeId, id);
+      } catch (err) {
+        failCount += 1;
+      }
+    }
+    setBulkDeleting(false);
+    exitSelectMode();
+    await reload();
+    if (failCount > 0) setError(`${failCount}건은 삭제하지 못했습니다(완료된 일정 등).`);
+  };
+
   // 카카오내비 호출(kakaonavi:// 커스텀 스킴)은 반드시 클릭 이벤트 안에서 "동기적으로"
   // 바로 실행해야 한다. 서버 호출(markGimhaeDeparted)을 먼저 await로 기다리면 그 사이
   // "사용자 제스처" 컨텍스트가 끊겨, iOS/PWA 환경에서 커스텀 URL 스킴이 무시되고 아무
@@ -5479,26 +5522,51 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
       <div className="flex items-center justify-between">
         <h1 className="text-[22px] font-bold tracking-tight text-slate-900">오늘일정</h1>
         <div className="flex items-center gap-3">
-          {isAdmin && (
+          {isAdmin && !selectMode && (
             <button onClick={() => setShowRegisterForm((v) => !v)} className="flex items-center gap-1 text-xs font-bold" style={{ color: BRAND.deepGreen }}>
               <PlusCircle className="h-3.5 w-3.5" /> 일정 등록
             </button>
           )}
-          <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
-            <RefreshCw className="h-3.5 w-3.5" /> 새로고침
-          </button>
+          {!selectMode ? (
+            <button onClick={() => { setSelectMode(true); setShowRegisterForm(false); }} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
+              <Trash2 className="h-3.5 w-3.5" /> 선택 삭제
+            </button>
+          ) : (
+            <button onClick={exitSelectMode} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
+              취소
+            </button>
+          )}
+          {!selectMode && (
+            <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
+              <RefreshCw className="h-3.5 w-3.5" /> 새로고침
+            </button>
+          )}
         </div>
       </div>
-      <div className="mt-1.5 flex items-center justify-between gap-2">
-        <p className="break-keep text-[13px] text-slate-400">일정 등록 → 대기중 → 수락 → 납품중 → 완료 순서로 진행됩니다.</p>
-        <button
-          onClick={() => setShowMineOnly((v) => !v)}
-          className="flex flex-shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors"
-          style={showMineOnly ? { backgroundColor: BRAND.greenSoft, color: BRAND.deepGreen } : { backgroundColor: "#f1f5f9", color: "#64748b" }}
-        >
-          <UserCircle2 className="h-3 w-3" /> {showMineOnly ? "내 담당만" : "전체 보기"}
-        </button>
-      </div>
+      {!selectMode ? (
+        <div className="mt-1.5 flex items-center justify-between gap-2">
+          <p className="break-keep text-[13px] text-slate-400">일정 등록 → 대기중 → 수락 → 납품중 → 완료 순서로 진행됩니다.</p>
+          <button
+            onClick={() => setShowMineOnly((v) => !v)}
+            className="flex flex-shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors"
+            style={showMineOnly ? { backgroundColor: BRAND.greenSoft, color: BRAND.deepGreen } : { backgroundColor: "#f1f5f9", color: "#64748b" }}
+          >
+            <UserCircle2 className="h-3 w-3" /> {showMineOnly ? "내 담당만" : "전체 보기"}
+          </button>
+        </div>
+      ) : (
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2.5">
+          <p className="text-[13px] font-semibold text-slate-600">{selectedIds.size}건 선택됨</p>
+          <button
+            onClick={handleBulkDelete}
+            disabled={selectedIds.size === 0 || bulkDeleting}
+            className="flex items-center gap-1.5 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-bold text-white transition-all active:scale-95 disabled:opacity-40"
+          >
+            {bulkDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+            {bulkDeleting ? "삭제중..." : "선택 삭제"}
+          </button>
+        </div>
+      )}
 
       {showRegisterForm && (
         <GimhaeScheduleRegisterForm
@@ -5532,22 +5600,37 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
               {waiting.length === 0 && <p className="rounded-2xl bg-white py-7 text-center text-xs text-slate-400 shadow-[0_1px_3px_rgba(16,24,40,0.05)]">대기중인 일정이 없습니다.</p>}
               {waiting.map((item) => {
                 const busy = busyId === item.dispatchId;
+                const checked = selectedIds.has(item.dispatchId);
                 return (
-                  <div key={item.dispatchId} className="rounded-[20px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
+                  <div
+                    key={item.dispatchId}
+                    onClick={selectMode ? () => toggleSelected(item.dispatchId) : undefined}
+                    className={`rounded-[20px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)] ${selectMode ? "cursor-pointer" : ""} ${selectMode && checked ? "ring-2 ring-red-400" : ""}`}
+                  >
                     <div className="flex items-start justify-between">
-                      <div className="min-w-0">
-                        <p className="text-[15px] font-semibold tracking-tight text-slate-900">{item.customerName}</p>
-                        <p className="mt-0.5 break-keep text-xs text-slate-400">{item.taskDescription}</p>
+                      <div className="flex min-w-0 items-start gap-2.5">
+                        {selectMode && (
+                          <span className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border ${checked ? "border-red-400 bg-red-500 text-white" : "border-slate-300 bg-white"}`}>
+                            {checked && <Check className="h-3.5 w-3.5" />}
+                          </span>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-[15px] font-semibold tracking-tight text-slate-900">{item.customerName}</p>
+                          <p className="mt-0.5 break-keep text-xs text-slate-400">{item.taskDescription}</p>
+                        </div>
                       </div>
                       <div className="flex flex-shrink-0 items-center gap-1">
                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">{item.dispatchId}</span>
-                        <button onClick={() => handleDelete(item)} disabled={busy} title="일정 삭제"
-                          className="flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-50">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {!selectMode && (
+                          <button onClick={() => handleDelete(item)} disabled={busy} title="일정 삭제"
+                            className="flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-50">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
 
+                    {!selectMode && (
                     <button
                       onClick={() => setAcceptTargetId(acceptTargetId === item.dispatchId ? null : item.dispatchId)}
                       disabled={busy}
@@ -5556,8 +5639,9 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" /> 수락
                     </button>
+                    )}
 
-                    {acceptTargetId === item.dispatchId && (
+                    {!selectMode && acceptTargetId === item.dispatchId && (
                       <GimhaeAcceptForm
                         vehicles={vehicles}
                         submitting={busy}
@@ -5586,16 +5670,28 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                 // 동일하게 막지만, 누르고 나서 에러를 보는 것보다 미리 막는 게 낫다).
                 // 수락자사번이 없는 과거 데이터는 안전하게 그대로 허용한다.
                 const isMyDelivery = !item.workerEmployeeId || isSameEmployeeId(item.workerEmployeeId, employee.employeeId) || isAdmin;
+                const checked = selectedIds.has(item.dispatchId);
                 return (
-                  <div key={item.dispatchId} className="rounded-[20px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
+                  <div
+                    key={item.dispatchId}
+                    onClick={selectMode ? () => toggleSelected(item.dispatchId) : undefined}
+                    className={`rounded-[20px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)] ${selectMode ? "cursor-pointer" : ""} ${selectMode && checked ? "ring-2 ring-red-400" : ""}`}
+                  >
                     <div className="flex items-start justify-between">
-                      <div className="min-w-0">
-                        <p className="text-[15px] font-semibold tracking-tight text-slate-900">{item.customerName}</p>
-                        <p className="mt-0.5 break-keep text-xs text-slate-400">{item.taskDescription}</p>
+                      <div className="flex min-w-0 items-start gap-2.5">
+                        {selectMode && (
+                          <span className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border ${checked ? "border-red-400 bg-red-500 text-white" : "border-slate-300 bg-white"}`}>
+                            {checked && <Check className="h-3.5 w-3.5" />}
+                          </span>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-[15px] font-semibold tracking-tight text-slate-900">{item.customerName}</p>
+                          <p className="mt-0.5 break-keep text-xs text-slate-400">{item.taskDescription}</p>
+                        </div>
                       </div>
                       <div className="flex flex-shrink-0 items-center gap-1">
                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">{item.dispatchId}</span>
-                        {(isMyDelivery || isAdmin) && (
+                        {!selectMode && (isMyDelivery || isAdmin) && (
                           <button onClick={() => handleDelete(item)} disabled={busy} title="일정 삭제"
                             className="flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-50">
                             <Trash2 className="h-3.5 w-3.5" />
@@ -5604,7 +5700,7 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                       </div>
                     </div>
 
-                {(() => {
+                {!selectMode && (() => {
                   const registeredLabel = item.registeredAt
                     ? `등록시간 ${new Date(item.registeredAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}`
                     : "등록시간 정보없음";
@@ -5624,7 +5720,7 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                   );
                 })()}
 
-                    {isMyDelivery ? (
+                    {!selectMode && (isMyDelivery ? (
                       <>
                         {!item.departedAt ? (
                           <div className="mt-3 rounded-lg bg-slate-50 p-3">
@@ -5672,7 +5768,7 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                       <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-center text-[11px] font-semibold text-slate-400">
                         다른 담당자의 일정입니다(진행/완료는 본인만 가능)
                       </p>
-                    )}
+                    ))}
                   </div>
                 );
               })}
@@ -8778,6 +8874,10 @@ function GimhaeHome({ employee }) {
             ? "지원 권한으로 일부 메뉴를 임시로 사용할 수 있습니다."
             : `${ROLE_LABELS[employee.role] || employee.role} 권한으로 오늘일정 조회/완료처리가 가능합니다.`
         }
+      </p>
+      <p className="mt-2 flex items-center gap-1.5 text-[12px] text-slate-400">
+        <MapPin className="h-3.5 w-3.5 flex-shrink-0" style={{ color: BRAND.deepGreen }} />
+        경남 김해시 진영읍 서부로179번길 61-8
       </p>
 
       {teamSections.map((section) => (
