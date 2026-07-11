@@ -900,11 +900,13 @@ async function createProductionPriority(actorEmployeeId, entry) {
     quantity: entry.quantity,
     due_time: entry.dueTime,
     message: entry.message,
+    customer: entry.customer,
+    request_type: entry.requestType,
   });
   return { priorityId: data.priority_id };
 }
 
-/** 김해 생산 우선순위 현황판 — 대기/진행 중인 항목만(완료·취소는 빠짐) 최신순. */
+/** 김해 생산 우선순위 현황판 — 대기/진행 중인 항목만(완료·취소·거절은 빠짐) 최신순. */
 async function listProductionPriority(actorEmployeeId) {
   const data = await callGasWebApp({ action: "listProductionPriority", actor_employee_id: actorEmployeeId });
   return (data.priorities || []).map((p) => ({
@@ -919,6 +921,19 @@ async function listProductionPriority(actorEmployeeId) {
     message: p.message,
     status: p.status,
     createdAt: p.created_at,
+    customer: p.customer,
+    requestType: p.request_type,
+  }));
+}
+
+/** A동에서 생산된 점착LOT 목록 — 재단/프레스에서 선택용(최근 생산순). */
+async function listAdhesiveLots(actorEmployeeId) {
+  const data = await callGasWebApp({ action: "listAdhesiveLots", actor_employee_id: actorEmployeeId });
+  return (data.lots || []).map((l) => ({
+    adhesiveLot: l.adhesive_lot,
+    date: l.date,
+    building: l.building,
+    stock: l.stock,
   }));
 }
 
@@ -1302,8 +1317,21 @@ async function createProductionLog(actorEmployeeId, entry) {
     fabric_type: entry.fabricType,
     adhesive_lot: entry.adhesiveLot,
     signature_base64: entry.signatureBase64,
+    building: entry.building,
+    facility: entry.facility,
+    facility_type: entry.facilityType,
+    flame_type: entry.flameType,
+    thickness: entry.thickness,
+    fabric_vendor: entry.fabricVendor,
+    fabric_lot: entry.fabricLot,
+    customer: entry.customer,
+    mold_location: entry.moldLocation,
+    store_location: entry.storeLocation,
+    move_to: entry.moveTo,
+    prod_date_yymmdd: entry.prodDateYymmdd,
+    material_quantity: entry.materialQuantity,
   });
-  return { logId: data.log_id, date: data.date, time: data.time, recordHash: data.record_hash, createdAt: data.created_at };
+  return { logId: data.log_id, date: data.date, time: data.time, adhesiveLot: data.adhesive_lot, recordHash: data.record_hash, createdAt: data.created_at };
 }
 
 /** 김해 생산일보 조회 — 특정 날짜(없으면 오늘) 줄들을 시각 순으로. verified=위변조 검증 결과. */
@@ -7599,68 +7627,119 @@ function HourlyProductionChart({ series }) {
 function ProductionLogScreen({ employee, onBack }) {
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const todayYYMMDD = `${String(today.getFullYear()).slice(2)}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+
+  // 동/설비 선택 단계
+  const [building, setBuilding] = useState(null);   // "A동" | "B동" | "C동"
+  const [facility, setFacility] = useState(null);   // 설비명
 
   const [logs, setLogs] = useState([]);
   const [status, setStatus] = useState("loading");
   const [loadError, setLoadError] = useState("");
+  const [adhesiveLots, setAdhesiveLots] = useState([]); // 점착LOT 목록(재단/프레스용)
 
-  // 입력 폼 상태
-  const [partNo, setPartNo] = useState("");
+  // 공통 입력
   const [producer, setProducer] = useState(employee.name || "");
-  const [prodStatus, setProdStatus] = useState("생산");
   const [quantity, setQuantity] = useState("");
-  const [fabricType, setFabricType] = useState("");
-  const [adhesiveLot, setAdhesiveLot] = useState("");
   const [signature, setSignature] = useState(null);
-  const [sigKey, setSigKey] = useState(0); // 서명패드 초기화용
+  const [sigKey, setSigKey] = useState(0);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [notice, setNotice] = useState(null);
+
+  // A동(점착) 입력
+  const [fabricVendor, setFabricVendor] = useState("");
+  const [fabricLot, setFabricLot] = useState("");
+  const [fabricType, setFabricType] = useState("PU");
+  const [flameType, setFlameType] = useState("난연");
+  const [thickness, setThickness] = useState("");
+  const [prodDate, setProdDate] = useState(todayYYMMDD); // LOT 자동조합용 날짜(YYMMDD)
+  const [moveTo, setMoveTo] = useState("보관"); // 보관 | C동
+
+  // 재단/프레스/수직기 공통 입력
+  const [adhesiveLot, setAdhesiveLot] = useState("");
+  const [customer, setCustomer] = useState("");
+  const [partNo, setPartNo] = useState("");
+  const [moldLocation, setMoldLocation] = useState("");
+  const [storeLocation, setStoreLocation] = useState("");
+
+  const STORE_LOCATIONS = ["C동 1층", "C동 2층", "B동 1층", "사무동 1층"];
+  const C_FACILITIES = ["재단", "도레미①", "도레미②", "도레미③", "씰링", "프레스①", "프레스②", "프레스③", "프레스④"];
+
+  // 설비 유형 판별 — 백엔드 재고 분기용
+  const facilityTypeOf = (bld, fac) => {
+    if (bld === "A동") return "adhesive";
+    if (bld === "B동") return "vertical";
+    if (fac === "재단") return "cutting";
+    if (fac && fac.indexOf("프레스") === 0) return "press";
+    if (fac && fac.indexOf("도레미") === 0) return "doremi";
+    if (fac === "씰링") return "sealing";
+    return "other";
+  };
+  const facType = facilityTypeOf(building, facility);
+  // A동 점착LOT 자동 조합 미리보기
+  const autoAdhesiveLot = [flameType, fabricType, thickness ? thickness + "T" : "", prodDate].filter((x) => x).join(" ");
 
   const reload = async () => {
     setStatus("loading");
     try {
-      const data = await listProductionLog(employee.employeeId, todayStr);
+      const [data, lots] = await Promise.all([
+        listProductionLog(employee.employeeId, todayStr),
+        listAdhesiveLots(employee.employeeId).catch(() => []),
+      ]);
       setLogs(data);
+      setAdhesiveLots(lots);
       setStatus("ready");
     } catch (err) {
       setLoadError(err.message || "생산일보를 불러오지 못했습니다.");
       setStatus("error");
     }
   };
-
   useEffect(() => { reload(); }, []);
 
-  const handleScanResult = (code) => {
-    setPartNo(String(code).toUpperCase());
-    setScannerOpen(false);
+  const resetLineInputs = () => {
+    setQuantity(""); setSignature(null); setSigKey((k) => k + 1);
   };
 
-  const handleAddRow = async () => {
-    if (!partNo.trim() || !producer.trim() || !prodStatus.trim()) {
-      setFormError("PART NO·생산자·상태는 필수입니다.");
-      return;
+  const handleSubmit = async () => {
+    if (!producer.trim()) { setFormError("생산자는 필수입니다."); return; }
+    if (!signature) { setFormError("작업자 서명이 있어야 저장됩니다."); return; }
+
+    // 설비별 필수값 확인
+    if (facType === "adhesive") {
+      if (!thickness.trim() || !quantity) { setFormError("두께와 생산수량(m)을 입력해주세요."); return; }
+    } else if (facType === "cutting") {
+      if (!adhesiveLot.trim() || !partNo.trim() || !quantity) { setFormError("점착LOT·PART NO·재단수량은 필수입니다."); return; }
+    } else {
+      if (!partNo.trim() || !quantity) { setFormError("PART NO·생산수량은 필수입니다."); return; }
     }
-    if (!signature) {
-      setFormError("작업자 서명이 있어야 저장됩니다.");
-      return;
-    }
+
     setFormError("");
     setSubmitting(true);
     try {
-      await createProductionLog(employee.employeeId, {
-        partNo: partNo.trim(),
+      const result = await createProductionLog(employee.employeeId, {
+        building, facility, facilityType: facType,
         producer: producer.trim(),
-        status: prodStatus.trim(),
-        quantity: quantity,
-        fabricType: fabricType.trim(),
-        adhesiveLot: adhesiveLot.trim(),
+        status: "생산",
+        quantity,
+        partNo: partNo.trim(),
+        fabricType, flameType, thickness: thickness.trim(),
+        fabricVendor: fabricVendor.trim(), fabricLot: fabricLot.trim(),
+        customer: customer.trim(),
+        moldLocation: moldLocation.trim(),
+        storeLocation,
+        moveTo: facType === "adhesive" ? moveTo : "",
+        prodDateYymmdd: prodDate,
+        adhesiveLot: facType === "adhesive" ? "" : adhesiveLot.trim(),
         signatureBase64: signature,
       });
-      // PART NO는 다음 줄에서도 이어 입력하는 경우가 많아 유지하고, 수량/서명만 비운다.
-      setQuantity("");
-      setSignature(null);
-      setSigKey((k) => k + 1);
+      if (facType === "adhesive" && result.adhesiveLot) {
+        setNotice(`점착LOT "${result.adhesiveLot}" 생산 저장됨 (${moveTo === "보관" ? "점착완제품 적재" : "C동 재단으로 이동"})`);
+      } else {
+        setNotice("생산일보가 저장되었습니다.");
+      }
+      resetLineInputs();
       await reload();
     } catch (err) {
       setFormError(err.message || "저장 중 오류가 발생했습니다.");
@@ -7669,135 +7748,259 @@ function ProductionLogScreen({ employee, onBack }) {
     }
   };
 
-  const statusColor = (st) => (st.indexOf("완료") !== -1 || st === "생산" ? BRAND.deepGreen : "#d97706");
+  const inputCls = "w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 text-sm text-slate-800 placeholder:text-slate-300 transition-colors focus:bg-white focus:outline-none disabled:opacity-50";
+  const segBtn = (active) => `flex-1 rounded-xl py-2.5 text-sm font-bold transition-all ${active ? "text-white shadow-sm" : "text-slate-500"}`;
 
+  // ── 1단계: 동 선택 ──
+  if (!building) {
+    return (
+      <main className="mx-auto max-w-md px-6 py-8">
+        <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
+        <h1 className="text-[22px] font-bold tracking-tight text-slate-900">생산일보 등록</h1>
+        <p className="mt-1 break-keep text-[13px] text-slate-400">{todayStr} · 먼저 생산한 동을 선택하세요.</p>
+        <div className="mt-5 grid grid-cols-1 gap-3">
+          {[
+            { key: "A동", desc: "점착기 (원단 점착 · 점착LOT 발번)" },
+            { key: "B동", desc: "수직기" },
+            { key: "C동", desc: "재단 · 도레미 · 씰링 · 프레스" },
+          ].map((b) => (
+            <button key={b.key} onClick={() => { setBuilding(b.key); setFacility(b.key === "A동" ? "점착기" : (b.key === "B동" ? "수직기" : null)); }}
+              className="flex items-center justify-between rounded-[18px] bg-white p-5 text-left shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)] transition-all hover:-translate-y-0.5 active:scale-[0.98]">
+              <div>
+                <p className="text-[17px] font-bold tracking-tight text-slate-900">{b.key}</p>
+                <p className="mt-0.5 break-keep text-xs text-slate-400">{b.desc}</p>
+              </div>
+              <ChevronLeft className="h-5 w-5 rotate-180 text-slate-300" />
+            </button>
+          ))}
+        </div>
+      </main>
+    );
+  }
+
+  // ── 2단계: C동이면 설비 선택 ──
+  if (building === "C동" && !facility) {
+    return (
+      <main className="mx-auto max-w-md px-6 py-8">
+        <button onClick={() => setBuilding(null)} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 동 선택</button>
+        <h1 className="text-[22px] font-bold tracking-tight text-slate-900">C동 설비 선택</h1>
+        <p className="mt-1 break-keep text-[13px] text-slate-400">작업할 설비를 선택하세요. 재단은 A동 점착과 연동됩니다.</p>
+        <div className="mt-5 grid grid-cols-2 gap-2.5">
+          {C_FACILITIES.map((f) => (
+            <button key={f} onClick={() => setFacility(f)}
+              className={`rounded-[16px] p-4 text-center text-[15px] font-semibold shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)] transition-all active:scale-[0.97] ${f === "재단" ? "text-white" : "bg-white text-slate-800"}`}
+              style={f === "재단" ? { backgroundColor: BRAND.deepGreen } : {}}>
+              {f}
+            </button>
+          ))}
+        </div>
+      </main>
+    );
+  }
+
+  // ── 3단계: 입력 폼 ──
   return (
     <main className="mx-auto max-w-md px-6 py-8">
-      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">생산일보 등록</h1>
-      <p className="mt-1 text-sm text-slate-400">{todayStr} · 한 줄씩 연달아 등록하세요. 각 줄은 작성 즉시 위·변조 방지 기록으로 저장됩니다.</p>
+      <button onClick={() => { building === "C동" ? setFacility(null) : setBuilding(null); }} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> {building === "C동" ? "설비 선택" : "동 선택"}</button>
+      <div className="flex items-center gap-2">
+        <h1 className="text-[22px] font-bold tracking-tight text-slate-900">{building} {facility}</h1>
+        <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: BRAND.greenSoft, color: BRAND.deepGreen }}>생산일보</span>
+      </div>
+      <p className="mt-1 break-keep text-[13px] text-slate-400">생산일자 {todayStr} · 한 건씩 저장되며 서명·해시로 위·변조가 방지됩니다.</p>
 
-      {/* 입력 폼 */}
-      <div className="mt-5 space-y-3 rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
+      {notice && (
+        <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-green-50 px-3 py-2.5 text-[12px] font-semibold" style={{ color: BRAND.deepGreen }}>
+          <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" /> {notice}
+          <button onClick={() => setNotice(null)} className="ml-auto text-slate-400">×</button>
+        </p>
+      )}
+
+      <div className="mt-4 space-y-3 rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
         <div>
-          <label className="text-xs font-semibold text-slate-500">PART NO *</label>
-          <div className="mt-1.5 flex items-center gap-2">
-            <input
-              value={partNo}
-              onChange={(e) => setPartNo(e.target.value.toUpperCase())}
-              placeholder="바코드 스캔 또는 직접 입력"
-              disabled={submitting}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
-            />
-            <button
-              type="button"
-              onClick={() => setScannerOpen(true)}
-              disabled={submitting}
-              className="flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-lg text-white disabled:opacity-50"
-              style={{ backgroundColor: BRAND.deepGreen }}
-              title="바코드 스캔"
-            >
-              <ScanLine className="h-5 w-5" />
-            </button>
-          </div>
+          <label className="text-xs font-semibold text-slate-500">생산자 *</label>
+          <input value={producer} onChange={(e) => setProducer(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs font-semibold text-slate-500">생산자 *</label>
-            <input value={producer} onChange={(e) => setProducer(e.target.value)} disabled={submitting}
-              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-slate-500">상태 *</label>
-            <select value={prodStatus} onChange={(e) => setProdStatus(e.target.value)} disabled={submitting}
-              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50">
-              <option value="생산">생산</option>
-              <option value="생산중">생산중</option>
-              <option value="생산완료">생산완료</option>
-            </select>
-          </div>
-        </div>
+        {/* ===== A동 점착기 ===== */}
+        {facType === "adhesive" && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-500">원단 업체</label>
+                <input value={fabricVendor} onChange={(e) => setFabricVendor(e.target.value)} placeholder="진양/봉림/신우/영보" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500">원단 LOT</label>
+                <input value={fabricLot} onChange={(e) => setFabricLot(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">원단 종류</label>
+              <div className="mt-1.5 flex gap-1 rounded-2xl bg-slate-100 p-1">
+                {["PU", "PE"].map((t) => (
+                  <button key={t} type="button" onClick={() => setFabricType(t)} disabled={submitting} className={segBtn(fabricType === t)} style={fabricType === t ? { backgroundColor: BRAND.deepGreen } : {}}>{t}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">구분</label>
+              <div className="mt-1.5 flex gap-1 rounded-2xl bg-slate-100 p-1">
+                {["난연", "비난연"].map((t) => (
+                  <button key={t} type="button" onClick={() => setFlameType(t)} disabled={submitting} className={segBtn(flameType === t)} style={flameType === t ? { backgroundColor: BRAND.deepGreen } : {}}>{t}</button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-500">두께(T) *</label>
+                <input value={thickness} onChange={(e) => setThickness(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="예: 5" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500">생산수량(m) *</label>
+                <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+              </div>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+              <p className="text-[11px] font-semibold text-slate-500">자동 생성될 점착LOT</p>
+              <p className="mt-0.5 text-sm font-bold" style={{ color: BRAND.deepGreen }}>{autoAdhesiveLot || "구분·원단·두께·날짜를 입력하세요"}</p>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">생산 후 이동</label>
+              <div className="mt-1.5 flex gap-1 rounded-2xl bg-slate-100 p-1">
+                {[["보관", "보관(점착완제품)"], ["C동", "C동(재단으로)"]].map(([v, lbl]) => (
+                  <button key={v} type="button" onClick={() => setMoveTo(v)} disabled={submitting} className={segBtn(moveTo === v)} style={moveTo === v ? { backgroundColor: BRAND.deepGreen } : {}}>{lbl}</button>
+                ))}
+              </div>
+            </div>
+            {moveTo === "보관" && (
+              <div>
+                <label className="text-xs font-semibold text-slate-500">보관위치</label>
+                <div className="mt-1.5 grid grid-cols-2 gap-2">
+                  {STORE_LOCATIONS.map((loc) => (
+                    <button key={loc} type="button" onClick={() => setStoreLocation(loc)} disabled={submitting}
+                      className={`rounded-xl py-2.5 text-xs font-bold transition-all ${storeLocation === loc ? "text-white" : "border border-slate-200 text-slate-500"}`}
+                      style={storeLocation === loc ? { backgroundColor: BRAND.deepGreen } : {}}>{loc}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
 
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="text-xs font-semibold text-slate-500">생산수량</label>
-            <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={submitting}
-              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-slate-500">원단종류</label>
-            <input value={fabricType} onChange={(e) => setFabricType(e.target.value)} placeholder="PU/PE 등" disabled={submitting}
-              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-slate-500">점착LOT</label>
-            <input value={adhesiveLot} onChange={(e) => setAdhesiveLot(e.target.value)} disabled={submitting}
-              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
-          </div>
-        </div>
+        {/* ===== C동 재단 (A동 연동) ===== */}
+        {facType === "cutting" && (
+          <>
+            <AdhesiveLotPicker lots={adhesiveLots} value={adhesiveLot} onChange={setAdhesiveLot} disabled={submitting} inputCls={inputCls} />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-500">PART NO *</label>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} disabled={submitting} className={inputCls} />
+                  <button type="button" onClick={() => setScannerOpen(true)} disabled={submitting} className="flex h-[46px] w-[46px] flex-shrink-0 items-center justify-center rounded-xl text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}><ScanLine className="h-5 w-5" /></button>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500">고객사</label>
+                <input value={customer} onChange={(e) => setCustomer(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-500">재단 생산수량(EA) *</label>
+                <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500">목형위치</label>
+                <input value={moldLocation} onChange={(e) => setMoldLocation(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">보관위치</label>
+              <div className="mt-1.5 grid grid-cols-2 gap-2">
+                {STORE_LOCATIONS.map((loc) => (
+                  <button key={loc} type="button" onClick={() => setStoreLocation(loc)} disabled={submitting}
+                    className={`rounded-xl py-2.5 text-xs font-bold transition-all ${storeLocation === loc ? "text-white" : "border border-slate-200 text-slate-500"}`}
+                    style={storeLocation === loc ? { backgroundColor: BRAND.deepGreen } : {}}>{loc}</button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ===== 프레스/도레미/씰링/수직기 (공통) ===== */}
+        {(facType === "press" || facType === "doremi" || facType === "sealing" || facType === "vertical" || facType === "other") && (
+          <>
+            <AdhesiveLotPicker lots={adhesiveLots} value={adhesiveLot} onChange={setAdhesiveLot} disabled={submitting} inputCls={inputCls} />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-500">협력사</label>
+                <input value={customer} onChange={(e) => setCustomer(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-500">PART NO *</label>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} disabled={submitting} className={inputCls} />
+                  <button type="button" onClick={() => setScannerOpen(true)} disabled={submitting} className="flex h-[46px] w-[46px] flex-shrink-0 items-center justify-center rounded-xl text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}><ScanLine className="h-5 w-5" /></button>
+                </div>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">생산수량 *</label>
+              <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">보관위치</label>
+              <div className="mt-1.5 grid grid-cols-2 gap-2">
+                {STORE_LOCATIONS.map((loc) => (
+                  <button key={loc} type="button" onClick={() => setStoreLocation(loc)} disabled={submitting}
+                    className={`rounded-xl py-2.5 text-xs font-bold transition-all ${storeLocation === loc ? "text-white" : "border border-slate-200 text-slate-500"}`}
+                    style={storeLocation === loc ? { backgroundColor: BRAND.deepGreen } : {}}>{loc}</button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
         <div>
-          <label className="text-xs font-semibold text-slate-500">작업자 서명 * <span className="font-normal text-slate-400">(위·변조 방지를 위해 직접 서명해야 저장됩니다)</span></label>
-          <div className="mt-1.5">
-            <SignaturePad key={sigKey} onChange={setSignature} />
-          </div>
+          <label className="text-xs font-semibold text-slate-500">작업자 서명 * <span className="font-normal text-slate-400">(위·변조 방지)</span></label>
+          <div className="mt-1.5"><SignaturePad key={sigKey} onChange={setSignature} /></div>
         </div>
 
         {formError && <p className="text-xs font-semibold text-red-500">{formError}</p>}
 
-        <button
-          onClick={handleAddRow}
-          disabled={submitting}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
-          style={{ backgroundColor: BRAND.deepGreen }}
-        >
+        <button onClick={handleSubmit} disabled={submitting}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
-          {submitting ? "저장중..." : "한 줄 추가"}
+          {submitting ? "저장중..." : "생산일보 저장"}
         </button>
       </div>
 
-      {/* 오늘 등록된 목록 */}
+      {/* 오늘 등록 내역 */}
       <div className="mt-6">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-bold text-slate-700">오늘 등록 내역 {logs.length > 0 && `(${logs.length})`}</h2>
-          <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
-            <RefreshCw className="h-3.5 w-3.5" /> 새로고침
-          </button>
+          <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400"><RefreshCw className="h-3.5 w-3.5" /> 새로고침</button>
         </div>
-
         {status === "loading" && <p className="mt-4 text-center text-xs text-slate-400">불러오는 중...</p>}
-        {status === "error" && <p className="mt-4 text-center text-xs font-semibold text-red-500">{loadError}</p>}
         {status === "ready" && logs.length === 0 && <p className="mt-6 text-center text-xs text-slate-400">아직 등록된 생산일보가 없습니다.</p>}
-
         {status === "ready" && logs.length > 0 && (
           <div className="mt-3 space-y-2">
             {logs.map((log) => (
               <div key={log.logId} className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-slate-900">{log.partNo}</span>
-                    <span className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white" style={{ backgroundColor: statusColor(log.status) }}>
-                      {log.status}
-                    </span>
-                  </div>
+                  <span className="text-sm font-bold text-slate-900">{log.partNo || log.adhesiveLot || "-"}</span>
                   <span className="text-xs font-semibold text-slate-400">{log.time}</span>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 break-keep text-xs text-slate-500">
                   생산자 {log.producer}
                   {log.quantity !== "" && log.quantity != null ? ` · 수량 ${Number(log.quantity).toLocaleString()}` : ""}
-                  {log.fabricType ? ` · ${log.fabricType}` : ""}
                   {log.adhesiveLot ? ` · LOT ${log.adhesiveLot}` : ""}
                 </p>
-                <div className="mt-1.5 flex items-center gap-1.5">
+                <div className="mt-1.5">
                   {log.verified ? (
-                    <span className="flex items-center gap-1 text-[11px] font-semibold" style={{ color: BRAND.deepGreen }}>
-                      <ShieldCheck className="h-3 w-3" /> 무결성 확인됨 · 사후 수정 불가
-                    </span>
+                    <span className="flex items-center gap-1 text-[11px] font-semibold" style={{ color: BRAND.deepGreen }}><ShieldCheck className="h-3 w-3" /> 무결성 확인됨</span>
                   ) : (
-                    <span className="flex items-center gap-1 text-[11px] font-semibold text-red-500">
-                      <AlertTriangle className="h-3 w-3" /> 검증 실패 — 값이 변경되었을 수 있음
-                    </span>
+                    <span className="flex items-center gap-1 text-[11px] font-semibold text-red-500"><AlertTriangle className="h-3 w-3" /> 검증 실패</span>
                   )}
                 </div>
               </div>
@@ -7806,8 +8009,36 @@ function ProductionLogScreen({ employee, onBack }) {
         )}
       </div>
 
-      {scannerOpen && <BarcodeScannerModal onScan={handleScanResult} onClose={() => setScannerOpen(false)} />}
+      {scannerOpen && <BarcodeScannerModal onScan={(code) => { setPartNo(String(code).toUpperCase()); setScannerOpen(false); }} onClose={() => setScannerOpen(false)} />}
     </main>
+  );
+}
+
+/** 점착LOT 선택기 — A동에서 생산된 LOT를 목록에서 고르거나 직접 입력. */
+function AdhesiveLotPicker({ lots, value, onChange, disabled, inputCls }) {
+  const [showList, setShowList] = useState(false);
+  return (
+    <div>
+      <label className="text-xs font-semibold text-slate-500">점착LOT * <span className="font-normal text-slate-400">(A동 생산 목록에서 선택)</span></label>
+      <div className="mt-1.5 flex items-center gap-2">
+        <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="예: 난연 PU 5T 260711" disabled={disabled} className={inputCls} />
+        <button type="button" onClick={() => setShowList((v) => !v)} disabled={disabled} className="flex h-[46px] flex-shrink-0 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 transition-all active:scale-95 disabled:opacity-50">
+          목록 <ChevronLeft className={`h-3.5 w-3.5 transition-transform ${showList ? "rotate-90" : "-rotate-90"}`} />
+        </button>
+      </div>
+      {showList && (
+        <div className="mt-2 max-h-56 space-y-1.5 overflow-y-auto rounded-xl bg-slate-50 p-2">
+          {lots.length === 0 && <p className="py-3 text-center text-[11px] text-slate-400">A동에서 생산된 점착LOT가 없습니다.</p>}
+          {lots.map((l) => (
+            <button key={l.adhesiveLot} type="button" onClick={() => { onChange(l.adhesiveLot); setShowList(false); }}
+              className="flex w-full items-center justify-between rounded-lg bg-white px-3 py-2 text-left shadow-sm transition-all active:scale-[0.98]">
+              <span className="text-[13px] font-semibold text-slate-800">{l.adhesiveLot}</span>
+              <span className="text-[10px] text-slate-400">{l.stock != null ? `잔량 ${Number(l.stock).toLocaleString()}` : l.date}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -8482,7 +8713,8 @@ function ProductionPriorityScreen({ employee, onBack }) {
   const [status, setStatus] = useState("loading");
   const [loadError, setLoadError] = useState("");
 
-  // 지정 폼
+  // 영업부 요청 폼
+  const [customer, setCustomer] = useState("");
   const [targetId, setTargetId] = useState("");
   const [partNo, setPartNo] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -8493,6 +8725,11 @@ function ProductionPriorityScreen({ employee, onBack }) {
   const [formError, setFormError] = useState("");
   const [busyId, setBusyId] = useState(null);
 
+  // 재단자 → ABC동 전달(생산 확인 요청) 폼
+  const [forwardFor, setForwardFor] = useState(null); // 전달 대상이 되는 원본 요청
+  const [forwardTargetId, setForwardTargetId] = useState("");
+  const [forwardMessage, setForwardMessage] = useState("");
+
   const reload = async () => {
     setStatus("loading");
     try {
@@ -8501,36 +8738,36 @@ function ProductionPriorityScreen({ employee, onBack }) {
         listEmployees(employee.employeeId),
       ]);
       setPriorities(pr);
-      // 김해 소속 직원을 우선 노출(생산자 지정용). 없으면 전체.
       const gimhae = emp.filter((e) => e.homeSite === "gimhae" || e.homeSite === "김해");
       setEmployees(gimhae.length > 0 ? gimhae : emp);
       setStatus("ready");
     } catch (err) {
-      setLoadError(err.message || "우선순위 현황을 불러오지 못했습니다.");
+      setLoadError(err.message || "요청 현황을 불러오지 못했습니다.");
       setStatus("error");
     }
   };
-
   useEffect(() => { reload(); }, []);
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    if (!targetId) { setFormError("지정할 생산자를 선택해주세요."); return; }
-    if (!partNo.trim() && !message.trim()) { setFormError("PART NO 또는 요청 내용을 입력해주세요."); return; }
+    if (!targetId) { setFormError("요청할 재단 작업자를 선택해주세요."); return; }
+    if (!partNo.trim()) { setFormError("PART NO를 입력해주세요."); return; }
     setFormError("");
     setSubmitting(true);
     try {
       await createProductionPriority(employee.employeeId, {
         targetEmployeeId: targetId,
+        customer: customer.trim(),
         partNo: partNo.trim(),
         quantity,
         dueTime: dueTime.trim(),
         message: message.trim(),
+        requestType: "sales_request",
       });
-      setPartNo(""); setQuantity(""); setDueTime(""); setMessage(""); setTargetId("");
+      setCustomer(""); setPartNo(""); setQuantity(""); setDueTime(""); setMessage(""); setTargetId("");
       await reload();
     } catch (err) {
-      setFormError(err.message || "우선순위 지정 중 오류가 발생했습니다.");
+      setFormError(err.message || "요청 중 오류가 발생했습니다.");
     } finally {
       setSubmitting(false);
     }
@@ -8548,31 +8785,61 @@ function ProductionPriorityScreen({ employee, onBack }) {
     }
   };
 
+  // 재단자가 수락 후, ABC동 작업자에게 "생산 확인 요청"을 전달한다(새 요청으로 생성).
+  const handleForward = async () => {
+    if (!forwardTargetId) { setFormError("전달할 작업자를 선택해주세요."); return; }
+    setBusyId(forwardFor.priorityId);
+    try {
+      await createProductionPriority(employee.employeeId, {
+        targetEmployeeId: forwardTargetId,
+        customer: forwardFor.customer || "",
+        partNo: forwardFor.partNo,
+        quantity: forwardFor.quantity,
+        dueTime: forwardFor.dueTime,
+        message: forwardMessage.trim() || `[${forwardFor.customer || "고객사"}] ${forwardFor.partNo} 우선 생산 부탁드립니다.`,
+        requestType: "cut_forward",
+      });
+      setForwardFor(null); setForwardTargetId(""); setForwardMessage("");
+      await reload();
+    } catch (err) {
+      setLoadError(err.message || "전달 중 오류가 발생했습니다.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const isMe = (id) => String(id || "").trim().toUpperCase() === String(employee.employeeId || "").trim().toUpperCase();
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">생산 우선순위 지정</h1>
-      <p className="mt-1 text-sm text-slate-400">특정 생산자에게 "이 PART NO를 우선 생산해달라"고 지정하면, 그 사람에게만 알림이 갑니다.</p>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">[고객사]제품 생산 요청</h1>
+      <p className="mt-1 break-keep text-[13px] text-slate-400">고객사가 긴급 PART NO를 요청하면, 재단 작업자에게 생산 가능 여부를 물어보세요. 재단자가 수락하면 각 동 작업자에게 생산을 전달합니다.</p>
 
-      {/* 지정 폼 */}
+      {/* 영업부 요청 폼 */}
       <form onSubmit={handleCreate} className="mt-5 space-y-3 rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
-        <div>
-          <label className="text-xs font-semibold text-slate-500">지정할 생산자 *</label>
-          <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={submitting}
-            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50">
-            <option value="">생산자 선택...</option>
-            {employees.map((e) => (
-              <option key={e.employeeId} value={e.employeeId}>{e.name}{e.title ? ` ${e.title}` : ""}{e.department ? ` (${e.department})` : ""}</option>
-            ))}
-          </select>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-500">고객사</label>
+            <input value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="예: LG전자" disabled={submitting}
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 text-sm text-slate-800 placeholder:text-slate-300 transition-colors focus:bg-white focus:outline-none disabled:opacity-50" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500">재단 작업자 *</label>
+            <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={submitting}
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 text-sm text-slate-800 transition-colors focus:bg-white focus:outline-none disabled:opacity-50">
+              <option value="">선택...</option>
+              {employees.map((e) => (
+                <option key={e.employeeId} value={e.employeeId}>{e.name}{e.title ? ` ${e.title}` : ""}</option>
+              ))}
+            </select>
+          </div>
         </div>
         <div>
-          <label className="text-xs font-semibold text-slate-500">PART NO</label>
+          <label className="text-xs font-semibold text-slate-500">PART NO *</label>
           <div className="mt-1.5 flex items-center gap-2">
             <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} placeholder="바코드 스캔 또는 입력" disabled={submitting}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 transition-colors focus:bg-white focus:outline-none disabled:opacity-50" />
             <button type="button" onClick={() => setScannerOpen(true)} disabled={submitting}
               className="flex h-[38px] w-[38px] flex-shrink-0 items-center justify-center rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }} title="바코드 스캔">
               <ScanLine className="h-4 w-4" />
@@ -8583,31 +8850,31 @@ function ProductionPriorityScreen({ employee, onBack }) {
           <div>
             <label className="text-xs font-semibold text-slate-500">수량</label>
             <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={submitting}
-              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 text-sm text-slate-800 transition-colors focus:bg-white focus:outline-none disabled:opacity-50" />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">희망완료시간</label>
             <input value={dueTime} onChange={(e) => setDueTime(e.target.value)} placeholder="예: 15:00" disabled={submitting}
-              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 text-sm text-slate-800 placeholder:text-slate-300 transition-colors focus:bg-white focus:outline-none disabled:opacity-50" />
           </div>
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500">요청 내용</label>
-          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={2} placeholder="우선 생산이 필요한 이유 등" disabled={submitting}
-            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={2} placeholder="긴급 사유 등" disabled={submitting}
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 text-sm text-slate-800 placeholder:text-slate-300 transition-colors focus:bg-white focus:outline-none disabled:opacity-50" />
         </div>
         {formError && <p className="text-xs font-semibold text-red-500">{formError}</p>}
         <button type="submit" disabled={submitting}
           className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListChecks className="h-4 w-4" />}
-          {submitting ? "지정중..." : "우선순위 지정 + 알림 보내기"}
+          {submitting ? "요청중..." : "재단 작업자에게 생산 요청"}
         </button>
       </form>
 
-      {/* 전체 현황판 */}
+      {/* 현황판 */}
       <div className="mt-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-700">우선순위 현황판 {priorities.length > 0 && `(${priorities.length})`}</h2>
+          <h2 className="text-sm font-bold text-slate-700">진행 중인 요청 {priorities.length > 0 && `(${priorities.length})`}</h2>
           <button onClick={reload} className="flex items-center gap-1 text-xs font-semibold text-slate-400">
             <RefreshCw className="h-3.5 w-3.5" /> 새로고침
           </button>
@@ -8615,7 +8882,7 @@ function ProductionPriorityScreen({ employee, onBack }) {
 
         {status === "loading" && <p className="mt-4 text-center text-xs text-slate-400">불러오는 중...</p>}
         {status === "error" && <p className="mt-4 text-center text-xs font-semibold text-red-500">{loadError}</p>}
-        {status === "ready" && priorities.length === 0 && <p className="mt-6 text-center text-xs text-slate-400">진행 중인 우선순위 지정이 없습니다.</p>}
+        {status === "ready" && priorities.length === 0 && <p className="mt-6 text-center text-xs text-slate-400">진행 중인 요청이 없습니다.</p>}
 
         {status === "ready" && priorities.length > 0 && (
           <div className="mt-3 space-y-2">
@@ -8623,46 +8890,90 @@ function ProductionPriorityScreen({ employee, onBack }) {
               const amTarget = isMe(p.targetId);
               const amRequester = isMe(p.requesterId);
               const busy = busyId === p.priorityId;
+              const isSalesReq = p.requestType === "sales_request";
               return (
                 <div key={p.priorityId} className={`rounded-[16px] p-3.5 ${amTarget ? "bg-green-50/50 ring-1 ring-green-200" : "bg-white shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]"}`}>
                   <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {p.customer && <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ backgroundColor: BRAND.greenSoft, color: BRAND.deepGreen }}>{p.customer}</span>}
                         {p.partNo && <span className="text-sm font-bold text-slate-900">{p.partNo}</span>}
                         {p.quantity !== "" && p.quantity != null && <span className="text-xs font-semibold text-slate-500">{Number(p.quantity).toLocaleString()}개</span>}
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${p.status === "진행" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{p.status}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${p.status === "진행" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{p.status === "진행" ? "수락됨" : p.status}</span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">{isSalesReq ? "영업요청" : "생산전달"}</span>
                       </div>
-                      <p className="mt-1 text-xs text-slate-500">
+                      <p className="mt-1 break-keep text-xs text-slate-500">
                         {p.requesterName} → <span className="font-semibold text-slate-700">{p.targetName}</span>
-                        {amTarget && <span className="ml-1 font-bold" style={{ color: BRAND.deepGreen }}>· 나에게 지정됨</span>}
+                        {amTarget && <span className="ml-1 font-bold" style={{ color: BRAND.deepGreen }}>· 나에게 요청됨</span>}
                       </p>
                     </div>
-                    {p.dueTime && <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-400"><Clock className="h-3 w-3" />{p.dueTime}</span>}
+                    {p.dueTime && <span className="flex flex-shrink-0 items-center gap-1 text-[11px] font-semibold text-slate-400"><Clock className="h-3 w-3" />{p.dueTime}</span>}
                   </div>
                   {p.message && <p className="mt-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">{p.message}</p>}
 
-                  {/* 상태 처리 버튼 — 지정 대상: 진행/완료, 요청자: 취소 */}
-                  {(amTarget || amRequester) && (
-                    <div className="mt-2 flex items-center gap-2">
-                      {amTarget && p.status !== "진행" && (
-                        <button onClick={() => changeStatus(p.priorityId, "진행")} disabled={busy}
-                          className="flex-1 rounded-lg border border-amber-200 py-2 text-xs font-bold text-amber-700 disabled:opacity-50">
-                          작업 시작
-                        </button>
+                  {/* 대상(재단자 등): 대기 상태면 수락/거절, 수락(진행) 상태면 완료 + (영업요청이면)ABC동 전달 */}
+                  {amTarget && (
+                    <div className="mt-2 space-y-2">
+                      {p.status !== "진행" ? (
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => changeStatus(p.priorityId, "진행")} disabled={busy}
+                            className="flex-1 rounded-lg py-2 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+                            수락
+                          </button>
+                          <button onClick={() => changeStatus(p.priorityId, "거절")} disabled={busy}
+                            className="flex-1 rounded-lg border border-red-200 py-2 text-xs font-bold text-red-500 disabled:opacity-50">
+                            거절
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          {isSalesReq && (
+                            <button onClick={() => { setForwardFor(p); setForwardTargetId(""); setForwardMessage(""); }} disabled={busy}
+                              className="flex-1 rounded-lg border py-2 text-xs font-bold disabled:opacity-50" style={{ borderColor: BRAND.deepGreen, color: BRAND.deepGreen }}>
+                              각 동에 생산 전달
+                            </button>
+                          )}
+                          <button onClick={() => changeStatus(p.priorityId, "완료")} disabled={busy}
+                            className="flex-1 rounded-lg py-2 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+                            완료 처리
+                          </button>
+                        </div>
                       )}
-                      {amTarget && (
-                        <button onClick={() => changeStatus(p.priorityId, "완료")} disabled={busy}
-                          className="flex-1 rounded-lg py-2 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
-                          완료 처리
-                        </button>
-                      )}
-                      {amRequester && (
-                        <button onClick={() => changeStatus(p.priorityId, "취소")} disabled={busy}
-                          className="flex-1 rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-500 disabled:opacity-50">
-                          취소
-                        </button>
+
+                      {/* ABC동 전달 폼(수락 후) */}
+                      {forwardFor && forwardFor.priorityId === p.priorityId && (
+                        <div className="rounded-xl bg-slate-50 p-3">
+                          <p className="text-[11px] font-bold text-slate-600">생산 확인 요청 전달</p>
+                          <select value={forwardTargetId} onChange={(e) => setForwardTargetId(e.target.value)}
+                            className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 focus:outline-none">
+                            <option value="">전달할 작업자 선택(A·B·C동)...</option>
+                            {employees.map((e) => (
+                              <option key={e.employeeId} value={e.employeeId}>{e.name}{e.title ? ` ${e.title}` : ""}{e.department ? ` (${e.department})` : ""}</option>
+                            ))}
+                          </select>
+                          <textarea value={forwardMessage} onChange={(e) => setForwardMessage(e.target.value)} rows={2} placeholder="예: 이 협력사 PART NO 300개 먼저 생산 부탁"
+                            className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 placeholder:text-slate-300 focus:outline-none" />
+                          <div className="mt-2 flex items-center gap-2">
+                            <button onClick={handleForward} disabled={busy}
+                              className="flex-1 rounded-lg py-2 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+                              전달 + 알림 보내기
+                            </button>
+                            <button onClick={() => setForwardFor(null)}
+                              className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-500">
+                              닫기
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
+                  )}
+
+                  {/* 요청자: 취소 */}
+                  {amRequester && !amTarget && p.status !== "진행" && (
+                    <button onClick={() => changeStatus(p.priorityId, "취소")} disabled={busy}
+                      className="mt-2 w-full rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-500 disabled:opacity-50">
+                      요청 취소
+                    </button>
                   )}
                 </div>
               );
@@ -8805,7 +9116,7 @@ function GimhaeHome({ employee }) {
   if (activeScreen === "production_urgent") {
     return <ProductionUrgentRequestScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
-  if (activeScreen === "production_priority") {
+  if (activeScreen === "production_priority" || activeScreen === "customer_production_request") {
     return <ProductionPriorityScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
   if (activeScreen === "invoice_intake") {
@@ -8848,12 +9159,12 @@ function GimhaeHome({ employee }) {
         { key: "mold_location", icon: MapPin, label: "목형 위치 찾기", desc: "PART NO로 목형 보관 위치(동·구역·열) 검색", adminOnly: false },
         { key: "work_instruction", icon: FileText, label: "작업지시서", desc: "목형별 압력·수량·주의사항·원단·사진", adminOnly: false },
         { key: "production_urgent", icon: Megaphone, label: "생산 긴급요청", desc: "급한 생산 요청 등록(전체 알림·푸시)", adminOnly: false, urgent: true },
-        { key: "production_priority", icon: ListChecks, label: "생산 우선순위 지정", desc: "특정 생산자에게 우선 생산 지정 + 현황판", adminOnly: false },
       ],
     },
     {
       team: "영업팀",
       cards: [
+        { key: "customer_production_request", icon: ListChecks, label: "[고객사]제품 생산 요청", desc: "긴급 PART NO를 재단 작업자에게 생산 요청 → 수락/거절", adminOnly: false },
         { key: "schedule", icon: MapPin, label: "오늘일정", desc: "거래처 순회 납품 일정/완료처리", adminOnly: false },
         { key: "schedule_register", icon: PlusCircle, label: "일정 등록", desc: "신규 납품/방문 일정 빠르게 등록", adminOnly: true },
         { key: "route_optimizer", icon: Route, label: "동선 최적화", desc: "합짐 제안 + 절감 효과(거리/시간/유류비)", adminOnly: true },
