@@ -934,6 +934,9 @@ async function listAdhesiveLots(actorEmployeeId) {
     date: l.date,
     createdLabel: l.created_label,
     building: l.building,
+    rollLengthM: l.roll_length_m,
+    rollWidthMm: l.roll_width_mm,
+    separatorSize: l.separator_size,
     stock: l.stock,
   }));
 }
@@ -1342,6 +1345,7 @@ async function createProductionLog(actorEmployeeId, entry) {
     store_location: entry.storeLocation,
     move_to: entry.moveTo,
     prod_date_yymmdd: entry.prodDateYymmdd,
+    separator_size: entry.separatorSize,
     material_quantity: entry.materialQuantity,
   });
   return { logId: data.log_id, date: data.date, time: data.time, adhesiveLot: data.adhesive_lot, recordHash: data.record_hash, createdAt: data.created_at };
@@ -7670,6 +7674,11 @@ function ProductionLogScreen({ employee, onBack }) {
   const [thickness, setThickness] = useState("");
   const [prodDate, setProdDate] = useState(todayYYMMDD); // LOT 자동조합용 날짜(YYMMDD)
   const [moveTo, setMoveTo] = useState("보관"); // 보관 | C동
+  const [separatorSize, setSeparatorSize] = useState("대"); // 분리지 규격(소/대/특대) → 롤 너비
+
+  // 재단 계산 — 제품 너비×폭(mm)으로 롤에서 나오는 재단 가능 수량(EA)을 자동 산출
+  const [cutWidth, setCutWidth] = useState("");  // 제품 너비(mm)
+  const [cutDepth, setCutDepth] = useState("");  // 제품 폭(mm)
 
   // 재단/프레스/수직기 공통 입력
   const [adhesiveLot, setAdhesiveLot] = useState("");
@@ -7705,6 +7714,23 @@ function ProductionLogScreen({ employee, onBack }) {
   const facType = facilityTypeOf(building, facility);
   // A동 점착LOT 자동 조합 미리보기
   const autoAdhesiveLot = [flameType, effectiveFabricType, thickness ? thickness + "T" : "", prodDate].filter((x) => x).join(" ");
+
+  // 재단 계산 — 선택한 점착LOT(롤)의 규격과 제품 규격으로 재단 가능 수량(EA) 산출.
+  //  롤: 길이 L(m)=rollLengthM, 너비 W(mm)=rollWidthMm  →  롤을 mm로 환산(L*1000 × W)
+  //  제품: 너비 a(mm) × 폭 b(mm)  →  한 방향으로 격자 배치: floor(W/a) × floor(L*1000/b)
+  const selectedRoll = adhesiveLots.find((l) => l.adhesiveLot === adhesiveLot);
+  const cutYield = (() => {
+    if (!selectedRoll) return null;
+    const L = Number(selectedRoll.rollLengthM);   // m
+    const W = Number(selectedRoll.rollWidthMm);   // mm
+    const a = Number(cutWidth);                   // mm
+    const b = Number(cutDepth);                   // mm
+    if (!L || !W || !a || !b || a <= 0 || b <= 0) return null;
+    const across = Math.floor(W / a);             // 너비 방향 개수
+    const along = Math.floor((L * 1000) / b);     // 길이 방향 개수
+    const total = across * along;
+    return { across, along, total, L, W };
+  })();
 
   const reload = async () => {
     setStatus("loading");
@@ -7760,7 +7786,8 @@ function ProductionLogScreen({ employee, onBack }) {
       if (fabricType === "기타" && !fabricTypeCustom.trim()) { setFormError("기타 원단종류를 직접 입력해주세요."); return; }
       if (!thickness.trim() || !quantity) { setFormError("두께와 생산수량(m)을 입력해주세요."); return; }
     } else if (facType === "cutting") {
-      if (!adhesiveLot.trim() || !partNo.trim() || !quantity) { setFormError("점착LOT·PART NO·재단수량은 필수입니다."); return; }
+      if (!adhesiveLot.trim() || !partNo.trim()) { setFormError("점착LOT·PART NO는 필수입니다."); return; }
+      if (!cutYield || cutYield.total <= 0) { setFormError("제품 너비·폭을 입력하면 재단 가능 수량이 자동 계산됩니다."); return; }
     } else {
       if (!partNo.trim() || !quantity) { setFormError("PART NO·생산수량은 필수입니다."); return; }
     }
@@ -7768,11 +7795,13 @@ function ProductionLogScreen({ employee, onBack }) {
     setFormError("");
     setSubmitting(true);
     try {
+      // 재단은 자동 계산한 재단 가능 수량(EA)을 저장 수량으로 쓴다.
+      const submitQty = facType === "cutting" ? String(cutYield.total) : quantity;
       const result = await createProductionLog(employee.employeeId, {
         building, facility, facilityType: facType,
         producer: producer.trim(),
         status: "생산",
-        quantity,
+        quantity: submitQty,
         partNo: partNo.trim(),
         fabricType: effectiveFabricType, flameType, thickness: thickness.trim(),
         fabricVendor: fabricVendor.trim(), fabricLot: fabricLot.trim(),
@@ -7781,15 +7810,19 @@ function ProductionLogScreen({ employee, onBack }) {
         storeLocation: facType === "cutting" ? "" : storeLocation, // 재단은 보관위치 없음
         moveTo: facType === "adhesive" ? moveTo : "",
         prodDateYymmdd: prodDate,
+        separatorSize: facType === "adhesive" ? separatorSize : "",
         adhesiveLot: facType === "adhesive" ? "" : adhesiveLot.trim(),
         signatureBase64: signature,
       });
       if (facType === "adhesive" && result.adhesiveLot) {
-        setNotice(`점착LOT "${result.adhesiveLot}" 생산 저장됨 (${moveTo === "보관" ? "점착완제품 적재" : "C동 재단으로 이동"})`);
+        setNotice(`점착LOT "${result.adhesiveLot}" 생산 저장됨 · 점착완제품 +1롤`);
+      } else if (facType === "cutting") {
+        setNotice(`재단 저장됨 · 롤 1개 소진 → 완제품 ${cutYield.total.toLocaleString()}EA 입고`);
       } else {
         setNotice("생산일보가 저장되었습니다.");
       }
       resetLineInputs();
+      setCutWidth(""); setCutDepth("");
       await reload();
     } catch (err) {
       setFormError(err.message || "저장 중 오류가 발생했습니다.");
@@ -7915,6 +7948,14 @@ function ProductionLogScreen({ employee, onBack }) {
                 ))}
               </div>
             </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">분리지 규격 <span className="font-normal text-slate-400">(롤 너비 결정)</span></label>
+              <div className="mt-1.5 flex gap-1 rounded-2xl bg-slate-100 p-1">
+                {["소", "대", "특대"].map((t) => (
+                  <button key={t} type="button" onClick={() => setSeparatorSize(t)} disabled={submitting} className={segBtn(separatorSize === t)} style={separatorSize === t ? { backgroundColor: BRAND.deepGreen } : {}}>{t}</button>
+                ))}
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold text-slate-500">두께(T) *</label>
@@ -7971,15 +8012,45 @@ function ProductionLogScreen({ employee, onBack }) {
                 </div>
               )}
             </div>
+            {/* 선택한 롤 규격 표시 */}
+            {selectedRoll && (
+              <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                <p className="text-[11px] font-semibold text-slate-500">선택한 롤 규격</p>
+                <p className="mt-0.5 text-sm font-bold text-slate-700">
+                  {selectedRoll.rollLengthM ? `길이 ${Number(selectedRoll.rollLengthM).toLocaleString()}m` : "길이 미상"}
+                  {selectedRoll.rollWidthMm ? ` × 너비 ${Number(selectedRoll.rollWidthMm).toLocaleString()}mm` : ""}
+                  {selectedRoll.separatorSize ? ` (${selectedRoll.separatorSize})` : ""}
+                </p>
+                {(!selectedRoll.rollLengthM || !selectedRoll.rollWidthMm) && (
+                  <p className="mt-1 text-[11px] text-amber-600">이 롤은 길이/너비 정보가 없어 자동 계산이 안 될 수 있어요(옛 데이터).</p>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-slate-500">재단 생산수량(EA) *</label>
-                <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+                <label className="text-xs font-semibold text-slate-500">제품 너비(mm) *</label>
+                <input value={cutWidth} onChange={(e) => setCutWidth(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="예: 100" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-500">목형위치</label>
-                <input value={moldLocation} onChange={(e) => setMoldLocation(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+                <label className="text-xs font-semibold text-slate-500">제품 폭(mm) *</label>
+                <input value={cutDepth} onChange={(e) => setCutDepth(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="예: 200" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
               </div>
+            </div>
+            {/* 자동 계산된 재단 가능 수량 */}
+            <div className="rounded-xl px-3 py-3" style={{ backgroundColor: cutYield ? BRAND.greenSoft : "#f8fafc" }}>
+              <p className="text-[11px] font-semibold text-slate-500">재단 가능 수량 (자동 계산)</p>
+              {cutYield ? (
+                <>
+                  <p className="mt-0.5 text-lg font-bold" style={{ color: BRAND.deepGreen }}>{cutYield.total.toLocaleString()} EA</p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">너비방향 {cutYield.across}개 × 길이방향 {cutYield.along}개 · 롤 1개 소진</p>
+                </>
+              ) : (
+                <p className="mt-0.5 text-sm text-slate-400">점착LOT 선택 + 제품 너비·폭을 입력하세요</p>
+              )}
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">목형위치</label>
+              <input value={moldLocation} onChange={(e) => setMoldLocation(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
             </div>
           </>
         )}
@@ -8098,7 +8169,7 @@ function AdhesiveLotPicker({ lots, value, onChange, disabled, inputCls }) {
                 <p className="text-[13px] font-bold text-slate-800">{l.adhesiveLot}</p>
                 {l.createdLabel && <p className="mt-0.5 text-[10px] text-slate-400">{l.createdLabel}</p>}
               </div>
-              {l.stock != null && <span className="flex-shrink-0 text-[10px] font-semibold text-slate-400">잔량 {Number(l.stock).toLocaleString()}</span>}
+              {l.stock != null && <span className="flex-shrink-0 text-[10px] font-semibold text-slate-400">잔량 {Number(l.stock).toLocaleString()}롤</span>}
             </button>
           ))}
         </div>
