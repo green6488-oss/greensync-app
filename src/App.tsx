@@ -1575,61 +1575,63 @@ function LoginScreen({ onLogin }) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 font-sans">
-      <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+    <div className="flex min-h-screen items-center justify-center px-5 font-sans" style={{ background: "linear-gradient(180deg, #F6F9F5 0%, #EEF4EC 100%)" }}>
+      <div className="w-full max-w-sm rounded-[28px] bg-white p-8 shadow-[0_20px_50px_-20px_rgba(14,92,48,0.25)]">
         <div className="flex flex-col items-center">
-          <img src={GREEN_LOGO_SRC} alt="그린산업 로고" className="h-14 w-14 object-contain" />
-          <h1 className="mt-3 text-lg font-bold text-slate-900">그린산업(주) 로그인</h1>
-          <p className="mt-1 text-xs text-slate-400">그린산업(주) 통합 서비스 관리 시스템</p>
+          <div className="flex h-16 w-16 items-center justify-center rounded-3xl" style={{ backgroundColor: BRAND.greenSoft }}>
+            <img src={GREEN_LOGO_SRC} alt="그린산업 로고" className="h-11 w-11 object-contain" />
+          </div>
+          <h1 className="mt-4 text-[19px] font-bold tracking-tight text-slate-900">그린산업(주)</h1>
+          <p className="mt-1 text-xs text-slate-400">통합 물류·생산·재고 관리 시스템</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-7 space-y-3.5">
           <div>
-            <label className="text-xs font-semibold text-slate-500">사번</label>
-            <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
-              <UserCircle2 className="h-4 w-4 text-slate-400" />
+            <label className="ml-1 text-xs font-semibold text-slate-500">사번</label>
+            <div className="mt-1.5 flex items-center gap-2.5 rounded-2xl border border-slate-200 bg-slate-50/50 px-4 py-3 transition-all focus-within:border-transparent focus-within:bg-white focus-within:ring-2" style={{ "--tw-ring-color": BRAND.deepGreen }}>
+              <UserCircle2 className="h-[18px] w-[18px] text-slate-400" />
               <input
                 value={employeeId}
                 onChange={(e) => setEmployeeId(e.target.value.toUpperCase())}
                 placeholder="예: GI-230103"
                 disabled={status === "checking"}
-                className="w-full text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+                className="w-full bg-transparent text-[15px] text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
               />
             </div>
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-500">비밀번호</label>
-            <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
-              <Lock className="h-4 w-4 text-slate-400" />
+            <label className="ml-1 text-xs font-semibold text-slate-500">비밀번호</label>
+            <div className="mt-1.5 flex items-center gap-2.5 rounded-2xl border border-slate-200 bg-slate-50/50 px-4 py-3 transition-all focus-within:border-transparent focus-within:bg-white focus-within:ring-2" style={{ "--tw-ring-color": BRAND.deepGreen }}>
+              <Lock className="h-[18px] w-[18px] text-slate-400" />
               <input
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="초기 비밀번호: 1111"
                 disabled={status === "checking"}
-                className="w-full text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+                className="w-full bg-transparent text-[15px] text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
               />
               <button type="button" onClick={() => setShowPassword((v) => !v)} className="text-slate-400">
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                {showPassword ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
               </button>
             </div>
           </div>
 
-          {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
+          {error && <p className="ml-1 text-xs font-semibold text-red-500">{error}</p>}
 
           <button
             type="submit"
             disabled={status === "checking"}
-            className="flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-bold text-white disabled:opacity-50"
-            style={{ backgroundColor: BRAND.deepGreen }}
+            className="mt-1 flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-[15px] font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
+            style={{ backgroundColor: BRAND.deepGreen, boxShadow: "0 8px 20px -8px rgba(14,92,48,0.5)" }}
           >
-            <LogIn className="h-4 w-4" />
+            <LogIn className="h-[18px] w-[18px]" />
             {status === "checking" ? "확인중..." : "로그인"}
           </button>
         </form>
 
-        <p className="mt-5 text-center text-[11px] leading-relaxed text-slate-400">
+        <p className="mt-6 text-center text-[11px] leading-relaxed text-slate-400">
           데모용 사번: GI-230103(창원) · GG-250701-10(김해)
           <br />
           모든 직원의 초기 비밀번호는 1111입니다.
@@ -1693,7 +1695,7 @@ function ForcePasswordChangeScreen({ employee, onChanged, onLogout }) {
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div>
             <label className="text-xs font-semibold text-slate-500">새 비밀번호</label>
-            <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+            <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
               <Lock className="h-4 w-4 text-slate-400" />
               <input
                 type="password"
@@ -1708,7 +1710,7 @@ function ForcePasswordChangeScreen({ employee, onChanged, onLogout }) {
 
           <div>
             <label className="text-xs font-semibold text-slate-500">새 비밀번호 확인</label>
-            <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+            <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
               <Lock className="h-4 w-4 text-slate-400" />
               <input
                 type="password"
@@ -1726,7 +1728,7 @@ function ForcePasswordChangeScreen({ employee, onChanged, onLogout }) {
           <button
             type="submit"
             disabled={status === "saving"}
-            className="flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-bold text-white disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
             style={{ backgroundColor: BRAND.deepGreen }}
           >
             {status === "saving" ? "저장중..." : "비밀번호 변경"}
@@ -1870,7 +1872,7 @@ function PasswordChangeModal({ employee, onClose }) {
             <form onSubmit={handleSubmit} className="mt-5 space-y-4">
               <div>
                 <label className="text-xs font-semibold text-slate-500">현재 비밀번호</label>
-                <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+                <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
                   <Lock className="h-4 w-4 text-slate-400" />
                   <input
                     type="password"
@@ -1885,7 +1887,7 @@ function PasswordChangeModal({ employee, onClose }) {
 
               <div>
                 <label className="text-xs font-semibold text-slate-500">새 비밀번호</label>
-                <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+                <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
                   <KeyRound className="h-4 w-4 text-slate-400" />
                   <input
                     type="password"
@@ -1900,7 +1902,7 @@ function PasswordChangeModal({ employee, onClose }) {
 
               <div>
                 <label className="text-xs font-semibold text-slate-500">새 비밀번호 확인</label>
-                <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+                <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
                   <KeyRound className="h-4 w-4 text-slate-400" />
                   <input
                     type="password"
@@ -1918,7 +1920,7 @@ function PasswordChangeModal({ employee, onClose }) {
               <button
                 type="submit"
                 disabled={status === "saving"}
-                className="flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-bold text-white disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
                 style={{ backgroundColor: BRAND.deepGreen }}
               >
                 {status === "saving" ? "저장중..." : "비밀번호 변경"}
@@ -2535,7 +2537,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
               value={vehicleNo}
               onChange={(e) => setVehicleNo(e.target.value)}
               disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50"
             />
           </div>
           <div>
@@ -2545,7 +2547,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
               onChange={(e) => setRequester(e.target.value)}
               placeholder="요청자명부의 이름"
               disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
             />
           </div>
         </div>
@@ -2573,7 +2575,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
               onChange={(e) => setTempLc(e.target.value)}
               placeholder="임시 L/C 번호 입력"
               disabled={submitting}
-              className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
             />
           )}
         </div>
@@ -2590,7 +2592,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
               onChange={(e) => setPartNo(e.target.value.toUpperCase())}
               placeholder="바코드 스캔 또는 직접 입력"
               disabled={submitting}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
             />
             <button
               type="button"
@@ -2614,7 +2616,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
               onChange={(e) => setQuantity(stripCommas(e.target.value))}
               placeholder="0"
               disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
             />
           </div>
           <div>
@@ -2623,7 +2625,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
               value={pallet}
               onChange={(e) => setPallet(e.target.value)}
               disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50"
             />
           </div>
         </div>
@@ -2651,7 +2653,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
               onChange={(e) => setNoteDetail(e.target.value)}
               placeholder={`${note} 상세 입력`}
               disabled={submitting}
-              className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
             />
           )}
         </div>
@@ -2672,7 +2674,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
               type="button"
               onClick={handleSubmitSingle}
               disabled={submitting}
-              className="flex items-center justify-center gap-1.5 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50"
+              className="flex items-center justify-center gap-1.5 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
               style={{ backgroundColor: BRAND.deepGreen }}
             >
               {submitting ? "등록중..." : "등록"}
@@ -2720,7 +2722,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
           <button
             onClick={handleSubmitAll}
             disabled={submitting}
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-white disabled:opacity-50"
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
             style={{ backgroundColor: BRAND.deepGreen }}
           >
             {submitting
@@ -2808,7 +2810,7 @@ function StockSummaryScreen({ onBack }) {
       <h1 className="text-xl font-bold text-slate-900">재고조회</h1>
       <p className="mt-1 text-sm text-slate-400">PART NO 또는 품명으로 현재 재고를 검색합니다.</p>
 
-      <div className="mt-5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+      <div className="mt-5 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
         <Search className="h-4 w-4 text-slate-400" />
         <input
           value={query}
@@ -2947,7 +2949,7 @@ function MonthlyLedgerScreen({ onBack }) {
         </button>
       </div>
 
-      <div className="mt-3 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+      <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
         <Search className="h-4 w-4 text-slate-400" />
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="PART NO 또는 품명 검색"
           className="w-full text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none" />
@@ -3492,7 +3494,7 @@ function MaterialLocationScreen({ onBack }) {
       <h1 className="text-xl font-bold text-slate-900">위치찾기</h1>
       <p className="mt-1 text-sm text-slate-400">PART NO로 보관 층수와 도면 위 위치를 확인합니다.</p>
 
-      <form onSubmit={handleSearch} className="mt-5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+      <form onSubmit={handleSearch} className="mt-5 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
         <Search className="h-4 w-4 text-slate-400" />
         <input
           value={partNo}
@@ -3694,7 +3696,7 @@ function MaterialRegisterScreen({ employee, onBack }) {
               onChange={(e) => setPartNo(e.target.value.toUpperCase())}
               placeholder="바코드 스캔 또는 직접 입력"
               disabled={submitting}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
             />
             <button
               type="button"
@@ -3711,18 +3713,18 @@ function MaterialRegisterScreen({ employee, onBack }) {
         <div>
           <label className="text-xs font-semibold text-slate-500">품명</label>
           <input value={name} onChange={(e) => setName(e.target.value)} disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs font-semibold text-slate-500">L/C</label>
             <input value={lc} onChange={(e) => setLc(e.target.value)} disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">사업부</label>
             <input value={businessUnit} onChange={(e) => setBusinessUnit(e.target.value)} disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
           </div>
         </div>
         <div>
@@ -3765,7 +3767,7 @@ function MaterialRegisterScreen({ employee, onBack }) {
         {success && <p className="text-xs font-semibold" style={{ color: BRAND.deepGreen }}>{success} 등록 완료</p>}
 
         <button type="submit" disabled={submitting}
-          className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-white disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
           style={{ backgroundColor: BRAND.deepGreen }}>
           {submitting ? "등록중..." : "자재 등록"}
         </button>
@@ -3951,7 +3953,7 @@ function ChangwonRequestScreen({ employee, onBack }) {
             rows={5}
             placeholder="요청 내용을 입력해주세요"
             disabled={submitting}
-            className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+            className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
           />
           {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
           <button type="submit" disabled={submitting} className="w-full rounded-lg py-2.5 text-xs font-bold text-white disabled:opacity-50" style={{ backgroundColor: "#dc2626" }}>
@@ -4052,10 +4054,9 @@ function ChangwonHome({ employee }) {
 
   return (
     <main className="mx-auto max-w-3xl px-5 py-7">
-      <div className="overflow-hidden rounded-3xl p-5 text-white shadow-sm" style={{ background: `linear-gradient(135deg, ${BRAND.deepGreen} 0%, ${BRAND.deepGreenDark} 100%)` }}>
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">CHANGWON FACTORY</p>
-        <h1 className="mt-1 text-lg font-bold">창원(마산)공장 입출고 관리</h1>
-        <p className="mt-1.5 text-[13px] leading-relaxed text-white/70">
+      <div className="overflow-hidden rounded-[28px] px-6 py-7 text-white" style={{ background: `linear-gradient(150deg, ${BRAND.deepGreen} 0%, ${BRAND.deepGreenDark} 100%)`, boxShadow: "0 10px 30px -12px rgba(14,92,48,0.5)" }}>
+        <h1 className="text-[22px] font-bold leading-tight tracking-tight">창원(마산)공장 입출고 관리</h1>
+        <p className="mt-2.5 max-w-[92%] break-keep text-[13.5px] leading-relaxed text-white/75">
           {employee.name}{employee.title} · {
             employee.role === "관리자"
               ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다."
@@ -4066,7 +4067,7 @@ function ChangwonHome({ employee }) {
         </p>
       </div>
 
-      <div className="mt-7 grid grid-cols-2 gap-2.5">
+      <div className="mt-8 grid grid-cols-2 gap-3">
         {menuCards.map((card) => {
           const locked = card.adminOnly && !isAdmin;
           return (
@@ -4074,20 +4075,22 @@ function ChangwonHome({ employee }) {
               key={card.key}
               disabled={locked}
               onClick={() => !locked && setActiveScreen(card.key)}
-              className={`group flex flex-col items-start gap-2.5 rounded-2xl border p-4 text-left transition-all duration-150 ${
+              className={`group flex flex-col items-start gap-3 rounded-[22px] p-[18px] text-left transition-all duration-200 ease-out ${
                 locked
-                  ? "border-slate-100 bg-slate-50 opacity-50"
-                  : "border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_6px_16px_rgba(16,24,40,0.08)] active:translate-y-0 active:shadow-sm"
+                  ? "bg-slate-50 opacity-50"
+                  : "bg-white shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)] hover:-translate-y-1 hover:shadow-[0_12px_28px_-8px_rgba(16,24,40,0.16)] active:translate-y-0 active:scale-[0.98]"
               }`}
             >
               <span
-                className="flex h-11 w-11 items-center justify-center rounded-2xl transition-transform duration-150 group-hover:scale-105"
+                className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-200 group-hover:scale-105"
                 style={{ backgroundColor: card.urgent ? "#fee2e2" : BRAND.greenSoft }}
               >
-                <card.icon className="h-[22px] w-[22px]" style={{ color: card.urgent ? "#dc2626" : BRAND.deepGreen }} />
+                <card.icon className="h-[23px] w-[23px]" strokeWidth={2} style={{ color: card.urgent ? "#dc2626" : BRAND.deepGreen }} />
               </span>
-              <span className="text-[14px] font-bold leading-tight text-slate-900">{card.label}</span>
-              <span className="text-[11.5px] leading-snug text-slate-400">{card.desc}</span>
+              <div className="w-full">
+                <span className="block text-[15px] font-semibold leading-tight tracking-tight text-slate-900">{card.label}</span>
+                <span className="mt-1 block break-keep text-[11.5px] leading-snug text-slate-400">{card.desc}</span>
+              </div>
               {locked && <span className="text-[10px] font-semibold text-amber-600">관리자만 사용 가능</span>}
             </button>
           );
@@ -4151,7 +4154,7 @@ function EmployeeListScreen({ employee, onBack }) {
       <h1 className="text-xl font-bold text-slate-900">직원명부</h1>
       <p className="mt-1 text-sm text-slate-400">전체 직원 목록(관리자 전용)입니다.</p>
 
-      <div className="mt-5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+      <div className="mt-5 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
         <Search className="h-4 w-4 text-slate-400" />
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="이름, 사번, 부서 검색"
           className="w-full text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none" />
@@ -4491,7 +4494,7 @@ function CompletionReportModal({ item, customer, employee, onClose, onSubmit }) 
             value={signerName}
             onChange={(e) => setSignerName(e.target.value)}
             placeholder="예: 김철수"
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none"
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none"
           />
         </div>
 
@@ -4550,7 +4553,7 @@ function CompletionReportModal({ item, customer, employee, onClose, onSubmit }) 
         <button
           onClick={handleSubmit}
           disabled={submitting || gpsStatus === "locating" || outOfFence}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-white disabled:opacity-50"
+          className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
           style={{ backgroundColor: BRAND.deepGreen }}
         >
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
@@ -4943,7 +4946,7 @@ function GimhaeRouteOptimizerScreen({ employee, onBack }) {
                 value={shareTargetId}
                 onChange={(e) => { setShareTargetId(e.target.value); setShareSentName(null); }}
                 disabled={sharing}
-                className="flex-1 rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50"
+                className="flex-1 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50"
               >
                 <option value="">담당자 선택</option>
                 {gimhaeEmployees.map((e) => (
@@ -5150,7 +5153,7 @@ function GimhaeAcceptForm({ vehicles, submitting, onSubmit, onCancel }) {
 
       {vehicleMode === "법인" && (
         <select value={corporateLabel} onChange={(e) => setCorporateLabel(e.target.value)} disabled={submitting}
-          className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50">
+          className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50">
           <option value="">법인차량 선택</option>
           {corporateVehicles.map((v) => (
             <option key={v.label} value={v.label}>{v.label}</option>
@@ -5159,7 +5162,7 @@ function GimhaeAcceptForm({ vehicles, submitting, onSubmit, onCancel }) {
       )}
       {vehicleMode === "개인" && (
         <input value={personalLabel} onChange={(e) => setPersonalLabel(e.target.value)} placeholder="예: 카니발(12가3456)" disabled={submitting}
-          className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+          className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
       )}
       {vehicleMode === "없음" && (
         <p className="text-[11px] text-amber-600">차량을 등록하지 않으면 이번 배송의 주행거리/유류비가 자동으로 반영되지 않습니다.</p>
@@ -6063,7 +6066,7 @@ function GimhaeCustomerScreen({ employee, onBack }) {
         />
       )}
 
-      <div className="mt-5 flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+      <div className="mt-5 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
         <Search className="h-4 w-4 text-slate-400" />
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="거래처명 또는 지역 검색"
           className="w-full text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none" />
@@ -6804,7 +6807,7 @@ function WorkInstructionScreen({ employee, onBack }) {
 
       {/* 검색 */}
       <div className="mt-4 flex items-center gap-2">
-        <div className="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+        <div className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
           <Search className="h-4 w-4 text-slate-400" />
           <input
             value={query}
@@ -6953,41 +6956,41 @@ function WorkInstructionRegisterModal({ employee, initial, onClose, onSaved }) {
           <div>
             <label className="text-xs font-semibold text-slate-500">PART NO *</label>
             <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">목형번호</label>
             <input value={moldNo} onChange={(e) => setMoldNo(e.target.value)} disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs font-semibold text-slate-500">압력</label>
               <input value={pressure} onChange={(e) => setPressure(e.target.value)} placeholder="예: 8" disabled={submitting}
-                className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500">찍는 수량(1회)</label>
               <input value={punchQty} onChange={(e) => setPunchQty(e.target.value)} placeholder="예: 4" disabled={submitting}
-                className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs font-semibold text-slate-500">원단종류</label>
               <input value={fabricType} onChange={(e) => setFabricType(e.target.value)} placeholder="PU/PE 등" disabled={submitting}
-                className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500">두께(T)</label>
               <input value={thickness} onChange={(e) => setThickness(e.target.value)} placeholder="예: 2.0" disabled={submitting}
-                className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
             </div>
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">주의사항</label>
             <textarea value={caution} onChange={(e) => setCaution(e.target.value)} rows={2} placeholder="작업 시 주의할 점" disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">사진 {initial?.photoUrl ? "(새로 첨부하면 교체됨)" : "(선택)"}</label>
@@ -7004,7 +7007,7 @@ function WorkInstructionRegisterModal({ employee, initial, onClose, onSaved }) {
           {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
 
           <button onClick={handleSave} disabled={submitting}
-            className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
             style={{ backgroundColor: BRAND.deepGreen }}>
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
             {submitting ? "저장중..." : "저장"}
@@ -7071,7 +7074,7 @@ function MoldLocationScreen({ employee, onBack }) {
 
       {/* 검색 */}
       <div className="mt-4 flex items-center gap-2">
-        <div className="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5">
+        <div className="flex flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white">
           <Search className="h-4 w-4 text-slate-400" />
           <input
             value={query}
@@ -7223,12 +7226,12 @@ function MoldLocationRegisterModal({ employee, initial, onClose, onSaved }) {
           <div>
             <label className="text-xs font-semibold text-slate-500">PART NO *</label>
             <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">목형번호</label>
             <input value={moldNo} onChange={(e) => setMoldNo(e.target.value)} disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
           </div>
           <div className="grid grid-cols-3 gap-2">
             <div>
@@ -7243,18 +7246,18 @@ function MoldLocationRegisterModal({ employee, initial, onClose, onSaved }) {
             <div>
               <label className="text-xs font-semibold text-slate-500">구역</label>
               <input value={zone} onChange={(e) => setZone(e.target.value)} placeholder="예: 3" disabled={submitting}
-                className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500">열(칸)</label>
               <input value={column} onChange={(e) => setColumn(e.target.value)} placeholder="예: 2" disabled={submitting}
-                className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
             </div>
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">메모</label>
             <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="선반 위, 목형 상태 등" disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
           </div>
 
           {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
@@ -7262,7 +7265,7 @@ function MoldLocationRegisterModal({ employee, initial, onClose, onSaved }) {
           <button
             onClick={handleSave}
             disabled={submitting}
-            className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
             style={{ backgroundColor: BRAND.deepGreen }}
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
@@ -7558,7 +7561,7 @@ function ProductionLogScreen({ employee, onBack }) {
               onChange={(e) => setPartNo(e.target.value.toUpperCase())}
               placeholder="바코드 스캔 또는 직접 입력"
               disabled={submitting}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
             />
             <button
               type="button"
@@ -7577,12 +7580,12 @@ function ProductionLogScreen({ employee, onBack }) {
           <div>
             <label className="text-xs font-semibold text-slate-500">생산자 *</label>
             <input value={producer} onChange={(e) => setProducer(e.target.value)} disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">상태 *</label>
             <select value={prodStatus} onChange={(e) => setProdStatus(e.target.value)} disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50">
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50">
               <option value="생산">생산</option>
               <option value="생산중">생산중</option>
               <option value="생산완료">생산완료</option>
@@ -7594,17 +7597,17 @@ function ProductionLogScreen({ employee, onBack }) {
           <div>
             <label className="text-xs font-semibold text-slate-500">생산수량</label>
             <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">원단종류</label>
             <input value={fabricType} onChange={(e) => setFabricType(e.target.value)} placeholder="PU/PE 등" disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">점착LOT</label>
             <input value={adhesiveLot} onChange={(e) => setAdhesiveLot(e.target.value)} disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
           </div>
         </div>
 
@@ -7620,7 +7623,7 @@ function ProductionLogScreen({ employee, onBack }) {
         <button
           onClick={handleAddRow}
           disabled={submitting}
-          className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50"
           style={{ backgroundColor: BRAND.deepGreen }}
         >
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
@@ -7740,7 +7743,7 @@ function GimhaeUrgentRequestScreen({ employee, onBack }) {
               rows={5}
               placeholder="요청 내용을 입력해주세요"
               disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
             />
           </div>
           {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
@@ -7825,7 +7828,7 @@ function InventoryLedgerScreen({ employee, onBack }) {
 
       <div className="mt-3 flex items-center gap-2">
         <input type="month" value={ym} onChange={(e) => setYm(e.target.value)}
-          className="w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none" />
+          className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none" />
         <button onClick={exportToExcel} disabled={!data || data.items.length === 0}
           className="flex h-[42px] flex-shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-bold text-white disabled:opacity-40" style={{ backgroundColor: BRAND.deepGreen }}>
           <Download className="h-4 w-4" /> 엑셀
@@ -8032,7 +8035,7 @@ function InitialInventoryScreen({ employee, onBack }) {
     }
   };
 
-  const inputCls = "w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50";
+  const inputCls = "w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50";
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
@@ -8100,7 +8103,7 @@ function InitialInventoryScreen({ employee, onBack }) {
         {savedNotice && <p className="text-xs font-semibold" style={{ color: BRAND.deepGreen }}>{savedNotice}</p>}
 
         <button onClick={handleSave} disabled={submitting}
-          className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+          className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
           {submitting ? "저장중..." : "기초재고 저장"}
         </button>
@@ -8217,7 +8220,7 @@ function InvoiceIntakeScreen({ employee, onBack }) {
     XLSX.writeFile(wb, `거래명세입고_${listMonth || "전체"}.xlsx`);
   };
 
-  const inputCls = "w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50";
+  const inputCls = "w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50";
 
   return (
     <main className="mx-auto max-w-md px-6 py-8">
@@ -8290,7 +8293,7 @@ function InvoiceIntakeScreen({ employee, onBack }) {
           {savedNotice && <p className="text-xs font-semibold" style={{ color: BRAND.deepGreen }}>{savedNotice}</p>}
 
           <button onClick={handleSave} disabled={submitting}
-            className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+            className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
             {submitting ? "저장중..." : "거래명세표 저장"}
           </button>
@@ -8434,7 +8437,7 @@ function ProductionPriorityScreen({ employee, onBack }) {
         <div>
           <label className="text-xs font-semibold text-slate-500">지정할 생산자 *</label>
           <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50">
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50">
             <option value="">생산자 선택...</option>
             {employees.map((e) => (
               <option key={e.employeeId} value={e.employeeId}>{e.name}{e.title ? ` ${e.title}` : ""}{e.department ? ` (${e.department})` : ""}</option>
@@ -8456,22 +8459,22 @@ function ProductionPriorityScreen({ employee, onBack }) {
           <div>
             <label className="text-xs font-semibold text-slate-500">수량</label>
             <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 focus:outline-none disabled:opacity-50" />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">희망완료시간</label>
             <input value={dueTime} onChange={(e) => setDueTime(e.target.value)} placeholder="예: 15:00" disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
           </div>
         </div>
         <div>
           <label className="text-xs font-semibold text-slate-500">요청 내용</label>
           <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={2} placeholder="우선 생산이 필요한 이유 등" disabled={submitting}
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
+            className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50" />
         </div>
         {formError && <p className="text-xs font-semibold text-red-500">{formError}</p>}
         <button type="submit" disabled={submitting}
-          className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+          className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListChecks className="h-4 w-4" />}
           {submitting ? "지정중..." : "우선순위 지정 + 알림 보내기"}
         </button>
@@ -8616,7 +8619,7 @@ function ProductionUrgentRequestScreen({ employee, onBack }) {
               rows={5}
               placeholder="예: 이 PART NO를 다음 작업으로 우선 생산 부탁드립니다"
               disabled={submitting}
-              className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
             />
           </div>
           {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
@@ -8737,12 +8740,11 @@ function GimhaeHome({ employee }) {
   ];
 
   return (
-    <main className="mx-auto max-w-3xl px-5 py-7">
-      {/* 상단 인사 배너 — 은은한 그라데이션으로 프로페셔널한 첫인상 */}
-      <div className="overflow-hidden rounded-3xl p-5 text-white shadow-sm" style={{ background: `linear-gradient(135deg, ${BRAND.deepGreen} 0%, ${BRAND.deepGreenDark} 100%)` }}>
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">GIMHAE FACTORY</p>
-        <h1 className="mt-1 text-lg font-bold">김해공장 물류·생산·재고 관리</h1>
-        <p className="mt-1.5 text-[13px] leading-relaxed text-white/70">
+    <main className="mx-auto max-w-3xl px-5 py-6">
+      {/* 상단 인사 배너 — 애플풍의 넉넉한 여백과 은은한 그라데이션 */}
+      <div className="overflow-hidden rounded-[28px] px-6 py-7 text-white" style={{ background: `linear-gradient(150deg, ${BRAND.deepGreen} 0%, ${BRAND.deepGreenDark} 100%)`, boxShadow: "0 10px 30px -12px rgba(14,92,48,0.5)" }}>
+        <h1 className="text-[22px] font-bold leading-tight tracking-tight">김해공장 물류·생산·재고 관리</h1>
+        <p className="mt-2.5 max-w-[92%] break-keep text-[13.5px] leading-relaxed text-white/75">
           {employee.name}{employee.title} · {
             employee.role === "관리자"
               ? "관리자 권한으로 모든 메뉴를 사용할 수 있습니다."
@@ -8754,13 +8756,12 @@ function GimhaeHome({ employee }) {
       </div>
 
       {teamSections.map((section) => (
-        <section key={section.team} className="mt-7">
-          <div className="mb-3 flex items-center gap-2">
-            <span className="h-3.5 w-1 rounded-full" style={{ backgroundColor: BRAND.deepGreen }} />
-            <h2 className="text-[13px] font-bold tracking-tight text-slate-800">{section.team}</h2>
-            <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-400">{section.cards.length}</span>
+        <section key={section.team} className="mt-8">
+          <div className="mb-3.5 flex items-center gap-2 px-0.5">
+            <h2 className="text-[15px] font-bold tracking-tight text-slate-900">{section.team}</h2>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">{section.cards.length}</span>
           </div>
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-2 gap-3">
             {section.cards.map((card) => {
               const locked = card.adminOnly && !isAdmin;
               return (
@@ -8768,20 +8769,22 @@ function GimhaeHome({ employee }) {
                   key={card.key}
                   disabled={locked}
                   onClick={() => !locked && setActiveScreen(card.key)}
-                  className={`group flex flex-col items-start gap-2.5 rounded-2xl border p-4 text-left transition-all duration-150 ${
+                  className={`group flex flex-col items-start gap-3 rounded-[22px] p-[18px] text-left transition-all duration-200 ease-out ${
                     locked
-                      ? "border-slate-100 bg-slate-50 opacity-50"
-                      : "border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_6px_16px_rgba(16,24,40,0.08)] active:translate-y-0 active:shadow-sm"
+                      ? "bg-slate-50 opacity-50"
+                      : "bg-white shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)] hover:-translate-y-1 hover:shadow-[0_12px_28px_-8px_rgba(16,24,40,0.16)] active:translate-y-0 active:scale-[0.98]"
                   }`}
                 >
                   <span
-                    className="flex h-11 w-11 items-center justify-center rounded-2xl transition-transform duration-150 group-hover:scale-105"
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-200 group-hover:scale-105"
                     style={{ backgroundColor: card.urgent ? "#fee2e2" : BRAND.greenSoft }}
                   >
-                    <card.icon className="h-[22px] w-[22px]" style={{ color: card.urgent ? "#dc2626" : BRAND.deepGreen }} />
+                    <card.icon className="h-[23px] w-[23px]" strokeWidth={2} style={{ color: card.urgent ? "#dc2626" : BRAND.deepGreen }} />
                   </span>
-                  <span className="text-[14px] font-bold leading-tight text-slate-900">{card.label}</span>
-                  <span className="text-[11.5px] leading-snug text-slate-400">{card.desc}</span>
+                  <div className="w-full">
+                    <span className="block text-[15px] font-semibold leading-tight tracking-tight text-slate-900">{card.label}</span>
+                    <span className="mt-1 block break-keep text-[11.5px] leading-snug text-slate-400">{card.desc}</span>
+                  </div>
                   {locked && <span className="text-[10px] font-semibold text-amber-600">관리자만 사용 가능</span>}
                 </button>
               );
