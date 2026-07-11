@@ -7713,7 +7713,7 @@ function ProductionLogScreen({ employee, onBack }) {
   };
   const facType = facilityTypeOf(building, facility);
   // A동 점착LOT 자동 조합 미리보기
-  const autoAdhesiveLot = [flameType, effectiveFabricType, thickness ? thickness + "T" : "", prodDate].filter((x) => x).join(" ");
+  const autoAdhesiveLot = [flameType, effectiveFabricType, thickness ? thickness + "T" : "", separatorSize, prodDate].filter((x) => x).join(" ");
 
   // 재단 계산 — 선택한 점착LOT(롤)의 규격과 제품 규격으로 재단 가능 수량(EA) 산출.
   //  롤: 길이 L(m)=rollLengthM, 너비 W(mm)=rollWidthMm  →  롤을 mm로 환산(L*1000 × W)
