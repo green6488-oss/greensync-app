@@ -76,8 +76,8 @@ const BRAND = {
 
 // home_site 값(서버가 내려주는 changwon/gimhae)에 대응하는 화면 메타데이터.
 const SITES = {
-  changwon: { key: "changwon", label: "창원(마산)공장", role: "LG 물류 · 바코드 수불" },
-  gimhae: { key: "gimhae", label: "김해공장", role: "물류 동선 최적화" },
+  changwon: { key: "changwon", label: "창원(마산)공장", role: "경남 창원시 마산회원구 자유무역4길 49" },
+  gimhae: { key: "gimhae", label: "김해공장", role: "경남 김해시 진영읍 서부로179번길 61-8" },
 };
 
 const ROLE_LABELS = {
@@ -5593,7 +5593,15 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
                         <p className="text-[15px] font-semibold tracking-tight text-slate-900">{item.customerName}</p>
                         <p className="mt-0.5 break-keep text-xs text-slate-400">{item.taskDescription}</p>
                       </div>
-                      <span className="flex-shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">{item.dispatchId}</span>
+                      <div className="flex flex-shrink-0 items-center gap-1">
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">{item.dispatchId}</span>
+                        {(isMyDelivery || isAdmin) && (
+                          <button onClick={() => handleDelete(item)} disabled={busy} title="일정 삭제"
+                            className="flex h-6 w-6 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-50">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                 {(() => {
