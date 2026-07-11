@@ -9587,6 +9587,13 @@ function RouteSharePopup({ employee, share, onResolved }) {
 }
 
 export default function GreenSyncApp() {
+  // 진입 애니메이션 — 앱을 열 때마다 로고가 커지며 안으로 빨려들어가는 줌인 인트로.
+  const [introDone, setIntroDone] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setIntroDone(true), 1900); // 애니메이션 길이와 맞춤
+    return () => clearTimeout(t);
+  }, []);
+
   const [screen, setScreen] = useState(() => (loadSavedSession() ? "home" : "login")); // login | forcePasswordChange | home
   const [employee, setEmployee] = useState(() => loadSavedSession()?.employee || null);
   // 현재 화면에 보여줄 사이트. 로그인 시 employee.homeSite로 초기화되고,
@@ -9798,6 +9805,30 @@ export default function GreenSyncApp() {
   // screen === "home" — activeSite(전환 가능)에 따라 창원/김해 화면으로 분기
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
+      {/* 진입 애니메이션 — 로고가 커지며 화면 안으로 빨려들어가는 줌인 인트로 */}
+      {!introDone && (
+        <div className="greensync-intro fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden">
+          <style>{`
+            @keyframes gs-intro-zoom {
+              0%   { transform: scale(0.55); opacity: 0; }
+              22%  { transform: scale(1);    opacity: 1; }
+              60%  { transform: scale(1.08); opacity: 1; }
+              100% { transform: scale(9);    opacity: 0; }
+            }
+            @keyframes gs-intro-fade {
+              0%, 70% { opacity: 1; }
+              100%    { opacity: 0; }
+            }
+            .greensync-intro { background: radial-gradient(circle at 50% 45%, #E5F2EA 0%, #ffffff 70%); animation: gs-intro-fade 1.9s ease-in forwards; }
+            .greensync-intro-logo { animation: gs-intro-zoom 1.9s cubic-bezier(0.6, 0, 0.4, 1) forwards; will-change: transform, opacity; }
+            .greensync-intro-title { animation: gs-intro-fade 1.1s ease-in forwards; }
+          `}</style>
+          <div className="flex flex-col items-center">
+            <img src={GREEN_LOGO_SRC} alt="그린산업 로고" className="greensync-intro-logo h-28 w-28 object-contain drop-shadow-sm" />
+            <p className="greensync-intro-title mt-5 text-lg font-bold tracking-tight" style={{ color: BRAND.deepGreen }}>그린산업(주)</p>
+          </div>
+        </div>
+      )}
       <GlobalHeader
         employee={employee}
         activeSite={activeSite}
