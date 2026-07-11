@@ -932,9 +932,16 @@ async function listAdhesiveLots(actorEmployeeId) {
   return (data.lots || []).map((l) => ({
     adhesiveLot: l.adhesive_lot,
     date: l.date,
+    createdLabel: l.created_label,
     building: l.building,
     stock: l.stock,
   }));
+}
+
+/** 자재마스터(김해) PART NO 근사치 검색 — 생산일보 자동완성용(PART NO + 재질 + 협력사). */
+async function searchGimhaeMaterial(actorEmployeeId, query) {
+  const data = await callGasWebApp({ action: "searchGimhaeMaterial", actor_employee_id: actorEmployeeId, query });
+  return (data.items || []).map((it) => ({ partNo: it.part_no, material: it.material, vendor: it.vendor, model: it.model }));
 }
 
 /** 김해 생산 우선순위 상태 변경 — 진행/완료(지정 대상) 또는 취소(요청자). */
@@ -7652,6 +7659,7 @@ function ProductionLogScreen({ employee, onBack }) {
   const [fabricVendor, setFabricVendor] = useState("");
   const [fabricLot, setFabricLot] = useState("");
   const [fabricType, setFabricType] = useState("PU");
+  const [fabricTypeCustom, setFabricTypeCustom] = useState(""); // "기타" 선택 시 직접 입력
   const [flameType, setFlameType] = useState("난연");
   const [thickness, setThickness] = useState("");
   const [prodDate, setProdDate] = useState(todayYYMMDD); // LOT 자동조합용 날짜(YYMMDD)
@@ -7661,11 +7669,21 @@ function ProductionLogScreen({ employee, onBack }) {
   const [adhesiveLot, setAdhesiveLot] = useState("");
   const [customer, setCustomer] = useState("");
   const [partNo, setPartNo] = useState("");
+  const [material, setMaterial] = useState(""); // 자재마스터에서 불러온 재질
   const [moldLocation, setMoldLocation] = useState("");
   const [storeLocation, setStoreLocation] = useState("");
 
   const STORE_LOCATIONS = ["C동 1층", "C동 2층", "B동 1층", "사무동 1층"];
-  const C_FACILITIES = ["재단", "도레미①", "도레미②", "도레미③", "씰링", "프레스①", "프레스②", "프레스③", "프레스④"];
+  // C동 설비를 그룹으로 정렬(사진3 요청).
+  const C_GROUPS = [
+    { group: null, items: ["재단"] },
+    { group: "도레미", items: ["도레미①", "도레미②", "도레미③"] },
+    { group: "프레스", items: ["프레스①", "프레스②", "프레스③", "프레스④"] },
+    { group: null, items: ["씰링"] },
+  ];
+
+  // 실제 저장에 쓸 원단종류(기타면 직접입력값)
+  const effectiveFabricType = fabricType === "기타" ? fabricTypeCustom.trim() : fabricType;
 
   // 설비 유형 판별 — 백엔드 재고 분기용
   const facilityTypeOf = (bld, fac) => {
@@ -7679,7 +7697,7 @@ function ProductionLogScreen({ employee, onBack }) {
   };
   const facType = facilityTypeOf(building, facility);
   // A동 점착LOT 자동 조합 미리보기
-  const autoAdhesiveLot = [flameType, fabricType, thickness ? thickness + "T" : "", prodDate].filter((x) => x).join(" ");
+  const autoAdhesiveLot = [flameType, effectiveFabricType, thickness ? thickness + "T" : "", prodDate].filter((x) => x).join(" ");
 
   const reload = async () => {
     setStatus("loading");
@@ -7698,6 +7716,9 @@ function ProductionLogScreen({ employee, onBack }) {
   };
   useEffect(() => { reload(); }, []);
 
+  // 동/설비를 바꾸면 이전 화면의 저장 알림·오류를 정리(사진4 버그: 알림이 따라오던 문제).
+  useEffect(() => { setNotice(null); setFormError(""); }, [building, facility]);
+
   const resetLineInputs = () => {
     setQuantity(""); setSignature(null); setSigKey((k) => k + 1);
   };
@@ -7708,6 +7729,7 @@ function ProductionLogScreen({ employee, onBack }) {
 
     // 설비별 필수값 확인
     if (facType === "adhesive") {
+      if (fabricType === "기타" && !fabricTypeCustom.trim()) { setFormError("기타 원단종류를 직접 입력해주세요."); return; }
       if (!thickness.trim() || !quantity) { setFormError("두께와 생산수량(m)을 입력해주세요."); return; }
     } else if (facType === "cutting") {
       if (!adhesiveLot.trim() || !partNo.trim() || !quantity) { setFormError("점착LOT·PART NO·재단수량은 필수입니다."); return; }
@@ -7724,11 +7746,11 @@ function ProductionLogScreen({ employee, onBack }) {
         status: "생산",
         quantity,
         partNo: partNo.trim(),
-        fabricType, flameType, thickness: thickness.trim(),
+        fabricType: effectiveFabricType, flameType, thickness: thickness.trim(),
         fabricVendor: fabricVendor.trim(), fabricLot: fabricLot.trim(),
         customer: customer.trim(),
         moldLocation: moldLocation.trim(),
-        storeLocation,
+        storeLocation: facType === "cutting" ? "" : storeLocation, // 재단은 보관위치 없음
         moveTo: facType === "adhesive" ? moveTo : "",
         prodDateYymmdd: prodDate,
         adhesiveLot: facType === "adhesive" ? "" : adhesiveLot.trim(),
@@ -7785,13 +7807,20 @@ function ProductionLogScreen({ employee, onBack }) {
         <button onClick={() => setBuilding(null)} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 동 선택</button>
         <h1 className="text-[22px] font-bold tracking-tight text-slate-900">C동 설비 선택</h1>
         <p className="mt-1 break-keep text-[13px] text-slate-400">작업할 설비를 선택하세요. 재단은 A동 점착과 연동됩니다.</p>
-        <div className="mt-5 grid grid-cols-2 gap-2.5">
-          {C_FACILITIES.map((f) => (
-            <button key={f} onClick={() => setFacility(f)}
-              className={`rounded-[16px] p-4 text-center text-[15px] font-semibold shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)] transition-all active:scale-[0.97] ${f === "재단" ? "text-white" : "bg-white text-slate-800"}`}
-              style={f === "재단" ? { backgroundColor: BRAND.deepGreen } : {}}>
-              {f}
-            </button>
+        <div className="mt-5 space-y-4">
+          {C_GROUPS.map((grp, gi) => (
+            <div key={gi}>
+              {grp.group && <p className="mb-2 px-0.5 text-[13px] font-bold text-slate-500">{grp.group}</p>}
+              <div className={`grid gap-2.5 ${grp.items.length === 1 ? "grid-cols-1" : grp.items.length >= 4 ? "grid-cols-4" : "grid-cols-3"}`}>
+                {grp.items.map((f) => (
+                  <button key={f} onClick={() => setFacility(f)}
+                    className={`rounded-[16px] p-4 text-center font-semibold shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)] transition-all active:scale-[0.97] ${grp.items.length === 1 ? "text-[15px]" : "text-[14px]"} ${f === "재단" ? "text-white" : "bg-white text-slate-800"}`}
+                    style={f === "재단" ? { backgroundColor: BRAND.deepGreen } : {}}>
+                    {grp.group ? (f.replace(grp.group, "").trim() || f) : f}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       </main>
@@ -7837,10 +7866,13 @@ function ProductionLogScreen({ employee, onBack }) {
             <div>
               <label className="text-xs font-semibold text-slate-500">원단 종류</label>
               <div className="mt-1.5 flex gap-1 rounded-2xl bg-slate-100 p-1">
-                {["PU", "PE"].map((t) => (
+                {["PU", "PE", "기타"].map((t) => (
                   <button key={t} type="button" onClick={() => setFabricType(t)} disabled={submitting} className={segBtn(fabricType === t)} style={fabricType === t ? { backgroundColor: BRAND.deepGreen } : {}}>{t}</button>
                 ))}
               </div>
+              {fabricType === "기타" && (
+                <input value={fabricTypeCustom} onChange={(e) => setFabricTypeCustom(e.target.value)} placeholder="원단 종류 직접 입력" disabled={submitting} className={`mt-2 ${inputCls}`} />
+              )}
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500">구분</label>
@@ -7871,19 +7903,8 @@ function ProductionLogScreen({ employee, onBack }) {
                   <button key={v} type="button" onClick={() => setMoveTo(v)} disabled={submitting} className={segBtn(moveTo === v)} style={moveTo === v ? { backgroundColor: BRAND.deepGreen } : {}}>{lbl}</button>
                 ))}
               </div>
+              {moveTo === "보관" && <p className="mt-1.5 text-[11px] text-slate-400">A동에 보관됩니다 · 위치 선택 없이 바로 저장</p>}
             </div>
-            {moveTo === "보관" && (
-              <div>
-                <label className="text-xs font-semibold text-slate-500">보관위치</label>
-                <div className="mt-1.5 grid grid-cols-2 gap-2">
-                  {STORE_LOCATIONS.map((loc) => (
-                    <button key={loc} type="button" onClick={() => setStoreLocation(loc)} disabled={submitting}
-                      className={`rounded-xl py-2.5 text-xs font-bold transition-all ${storeLocation === loc ? "text-white" : "border border-slate-200 text-slate-500"}`}
-                      style={storeLocation === loc ? { backgroundColor: BRAND.deepGreen } : {}}>{loc}</button>
-                  ))}
-                </div>
-              </div>
-            )}
           </>
         )}
 
@@ -7891,18 +7912,19 @@ function ProductionLogScreen({ employee, onBack }) {
         {facType === "cutting" && (
           <>
             <AdhesiveLotPicker lots={adhesiveLots} value={adhesiveLot} onChange={setAdhesiveLot} disabled={submitting} inputCls={inputCls} />
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-500">PART NO *</label>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} disabled={submitting} className={inputCls} />
-                  <button type="button" onClick={() => setScannerOpen(true)} disabled={submitting} className="flex h-[46px] w-[46px] flex-shrink-0 items-center justify-center rounded-xl text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}><ScanLine className="h-5 w-5" /></button>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">PART NO *</label>
+              <div className="mt-1.5 flex items-start gap-2">
+                <div className="flex-1">
+                  <PartNoAutocomplete employeeId={employee.employeeId} value={partNo} onChange={setPartNo} onSelectMaterial={setMaterial} disabled={submitting} inputCls={inputCls} />
                 </div>
+                <button type="button" onClick={() => setScannerOpen(true)} disabled={submitting} className="flex h-[46px] w-[46px] flex-shrink-0 items-center justify-center rounded-xl text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}><ScanLine className="h-5 w-5" /></button>
               </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500">고객사</label>
-                <input value={customer} onChange={(e) => setCustomer(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
-              </div>
+              {material && <p className="mt-1.5 break-keep text-[12px] text-slate-500">재질: <span className="font-semibold text-slate-700">{material}</span></p>}
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">고객사</label>
+              <input value={customer} onChange={(e) => setCustomer(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -7914,16 +7936,6 @@ function ProductionLogScreen({ employee, onBack }) {
                 <input value={moldLocation} onChange={(e) => setMoldLocation(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
               </div>
             </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500">보관위치</label>
-              <div className="mt-1.5 grid grid-cols-2 gap-2">
-                {STORE_LOCATIONS.map((loc) => (
-                  <button key={loc} type="button" onClick={() => setStoreLocation(loc)} disabled={submitting}
-                    className={`rounded-xl py-2.5 text-xs font-bold transition-all ${storeLocation === loc ? "text-white" : "border border-slate-200 text-slate-500"}`}
-                    style={storeLocation === loc ? { backgroundColor: BRAND.deepGreen } : {}}>{loc}</button>
-                ))}
-              </div>
-            </div>
           </>
         )}
 
@@ -7931,18 +7943,19 @@ function ProductionLogScreen({ employee, onBack }) {
         {(facType === "press" || facType === "doremi" || facType === "sealing" || facType === "vertical" || facType === "other") && (
           <>
             <AdhesiveLotPicker lots={adhesiveLots} value={adhesiveLot} onChange={setAdhesiveLot} disabled={submitting} inputCls={inputCls} />
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-500">협력사</label>
-                <input value={customer} onChange={(e) => setCustomer(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500">PART NO *</label>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} disabled={submitting} className={inputCls} />
-                  <button type="button" onClick={() => setScannerOpen(true)} disabled={submitting} className="flex h-[46px] w-[46px] flex-shrink-0 items-center justify-center rounded-xl text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}><ScanLine className="h-5 w-5" /></button>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">협력사</label>
+              <input value={customer} onChange={(e) => setCustomer(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">PART NO *</label>
+              <div className="mt-1.5 flex items-start gap-2">
+                <div className="flex-1">
+                  <PartNoAutocomplete employeeId={employee.employeeId} value={partNo} onChange={setPartNo} onSelectMaterial={setMaterial} disabled={submitting} inputCls={inputCls} />
                 </div>
+                <button type="button" onClick={() => setScannerOpen(true)} disabled={submitting} className="flex h-[46px] w-[46px] flex-shrink-0 items-center justify-center rounded-xl text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}><ScanLine className="h-5 w-5" /></button>
               </div>
+              {material && <p className="mt-1.5 break-keep text-[12px] text-slate-500">재질: <span className="font-semibold text-slate-700">{material}</span></p>}
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500">생산수량 *</label>
@@ -8017,6 +8030,7 @@ function ProductionLogScreen({ employee, onBack }) {
 /** 점착LOT 선택기 — A동에서 생산된 LOT를 목록에서 고르거나 직접 입력. */
 function AdhesiveLotPicker({ lots, value, onChange, disabled, inputCls }) {
   const [showList, setShowList] = useState(false);
+  const selected = lots.find((l) => l.adhesiveLot === value);
   return (
     <div>
       <label className="text-xs font-semibold text-slate-500">점착LOT * <span className="font-normal text-slate-400">(A동 생산 목록에서 선택)</span></label>
@@ -8026,14 +8040,87 @@ function AdhesiveLotPicker({ lots, value, onChange, disabled, inputCls }) {
           목록 <ChevronLeft className={`h-3.5 w-3.5 transition-transform ${showList ? "rotate-90" : "-rotate-90"}`} />
         </button>
       </div>
+      {selected && selected.createdLabel && (
+        <p className="mt-1.5 text-[11px] text-slate-400">{selected.createdLabel} 생산</p>
+      )}
       {showList && (
-        <div className="mt-2 max-h-56 space-y-1.5 overflow-y-auto rounded-xl bg-slate-50 p-2">
+        <div className="mt-2 max-h-64 space-y-1.5 overflow-y-auto rounded-xl bg-slate-50 p-2">
           {lots.length === 0 && <p className="py-3 text-center text-[11px] text-slate-400">A동에서 생산된 점착LOT가 없습니다.</p>}
           {lots.map((l) => (
             <button key={l.adhesiveLot} type="button" onClick={() => { onChange(l.adhesiveLot); setShowList(false); }}
-              className="flex w-full items-center justify-between rounded-lg bg-white px-3 py-2 text-left shadow-sm transition-all active:scale-[0.98]">
-              <span className="text-[13px] font-semibold text-slate-800">{l.adhesiveLot}</span>
-              <span className="text-[10px] text-slate-400">{l.stock != null ? `잔량 ${Number(l.stock).toLocaleString()}` : l.date}</span>
+              className="flex w-full items-center justify-between gap-2 rounded-lg bg-white px-3 py-2.5 text-left shadow-sm transition-all active:scale-[0.98]">
+              <div className="min-w-0">
+                <p className="text-[13px] font-bold text-slate-800">{l.adhesiveLot}</p>
+                {l.createdLabel && <p className="mt-0.5 text-[10px] text-slate-400">{l.createdLabel}</p>}
+              </div>
+              {l.stock != null && <span className="flex-shrink-0 text-[10px] font-semibold text-slate-400">잔량 {Number(l.stock).toLocaleString()}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * PART NO 자동완성 — 한 글자씩 입력하면 자재마스터(김해)에서 근사치 PART NO를 좁혀
+ * 드롭다운으로 보여준다. 선택하면 PART NO가 채워지고 재질을 상위로 전달한다.
+ */
+function PartNoAutocomplete({ employeeId, value, onChange, onSelectMaterial, disabled, inputCls, placeholder }) {
+  const [results, setResults] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const timerRef = useRef(null);
+
+  const handleInput = (raw) => {
+    const v = raw.toUpperCase();
+    onChange(v);
+    if (onSelectMaterial) onSelectMaterial("");
+    window.clearTimeout(timerRef.current);
+    if (!v.trim()) { setResults([]); setOpen(false); return; }
+    timerRef.current = window.setTimeout(async () => {
+      setLoading(true);
+      try {
+        const items = await searchGimhaeMaterial(employeeId, v);
+        setResults(items);
+        setOpen(true);
+      } catch (e) {
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 250);
+  };
+
+  const pick = (item) => {
+    onChange(item.partNo);
+    if (onSelectMaterial) onSelectMaterial(item.material || "");
+    setOpen(false);
+    setResults([]);
+  };
+
+  return (
+    <div className="relative">
+      <input
+        value={value}
+        onChange={(e) => handleInput(e.target.value)}
+        onFocus={() => { if (results.length > 0) setOpen(true); }}
+        placeholder={placeholder || "한 글자씩 입력하면 연관 PART NO가 뜹니다"}
+        disabled={disabled}
+        className={inputCls}
+      />
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-100 bg-white p-1 shadow-lg">
+          {loading && <p className="py-2 text-center text-[11px] text-slate-400">검색 중...</p>}
+          {!loading && results.length === 0 && <p className="py-2 text-center text-[11px] text-slate-400">일치하는 PART NO가 없습니다</p>}
+          {results.map((item, idx) => (
+            <button key={item.partNo + "_" + idx} type="button" onClick={() => pick(item)}
+              className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-slate-50">
+              <div className="min-w-0">
+                <p className="truncate text-[13px] font-semibold text-slate-800">{item.partNo}</p>
+                {item.vendor && <p className="truncate text-[10px] text-slate-400">{item.vendor}</p>}
+              </div>
+              {item.material && <span className="flex-shrink-0 text-[11px] text-slate-400">{item.material.length > 14 ? item.material.slice(0, 14) + "…" : item.material}</span>}
             </button>
           ))}
         </div>
@@ -8707,13 +8794,14 @@ function InvoiceIntakeScreen({ employee, onBack }) {
  *    지정받은 사람은 "진행/완료", 보낸 사람은 "취소"할 수 있고, 완료·취소되면
  *    현황판에서 사라진다.
  */
-function ProductionPriorityScreen({ employee, onBack }) {
+function ProductionPriorityScreen({ employee, onBack, mode = "sales" }) {
+  const isTeam = mode === "team"; // 생산팀장 지시 모드
   const [priorities, setPriorities] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [status, setStatus] = useState("loading");
   const [loadError, setLoadError] = useState("");
 
-  // 영업부 요청 폼
+  // 요청/지시 폼
   const [customer, setCustomer] = useState("");
   const [targetId, setTargetId] = useState("");
   const [partNo, setPartNo] = useState("");
@@ -8750,7 +8838,7 @@ function ProductionPriorityScreen({ employee, onBack }) {
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    if (!targetId) { setFormError("요청할 재단 작업자를 선택해주세요."); return; }
+    if (!targetId) { setFormError(isTeam ? "지시할 작업자를 선택해주세요." : "요청할 재단 작업자를 선택해주세요."); return; }
     if (!partNo.trim()) { setFormError("PART NO를 입력해주세요."); return; }
     setFormError("");
     setSubmitting(true);
@@ -8762,7 +8850,7 @@ function ProductionPriorityScreen({ employee, onBack }) {
         quantity,
         dueTime: dueTime.trim(),
         message: message.trim(),
-        requestType: "sales_request",
+        requestType: isTeam ? "team_order" : "sales_request",
       });
       setCustomer(""); setPartNo(""); setQuantity(""); setDueTime(""); setMessage(""); setTargetId("");
       await reload();
@@ -8813,19 +8901,21 @@ function ProductionPriorityScreen({ employee, onBack }) {
   return (
     <main className="mx-auto max-w-md px-6 py-8">
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
-      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">[고객사]제품 생산 요청</h1>
-      <p className="mt-1 break-keep text-[13px] text-slate-400">고객사가 긴급 PART NO를 요청하면, 재단 작업자에게 생산 가능 여부를 물어보세요. 재단자가 수락하면 각 동 작업자에게 생산을 전달합니다.</p>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">{isTeam ? "생산 우선순위 지시" : "생산 긴급요청"}</h1>
+      <p className="mt-1 break-keep text-[13px] text-slate-400">{isTeam
+        ? "작업자에게 '이 작업이 끝나면 이 PART NO부터 우선 생산해줘'라고 지시하면, 그 작업자에게 알림이 갑니다."
+        : "고객사가 긴급 PART NO를 요청하면, 재단 작업자에게 생산 가능 여부를 물어보세요. 재단자가 수락하면 각 동 작업자에게 생산을 전달합니다."}</p>
 
-      {/* 영업부 요청 폼 */}
+      {/* 요청/지시 폼 */}
       <form onSubmit={handleCreate} className="mt-5 space-y-3 rounded-[18px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs font-semibold text-slate-500">고객사</label>
+            <label className="text-xs font-semibold text-slate-500">{isTeam ? "협력사/고객사" : "고객사"}</label>
             <input value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="예: LG전자" disabled={submitting}
               className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 text-sm text-slate-800 placeholder:text-slate-300 transition-colors focus:bg-white focus:outline-none disabled:opacity-50" />
           </div>
           <div>
-            <label className="text-xs font-semibold text-slate-500">재단 작업자 *</label>
+            <label className="text-xs font-semibold text-slate-500">{isTeam ? "지시할 작업자 *" : "재단 작업자 *"}</label>
             <select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={submitting}
               className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 text-sm text-slate-800 transition-colors focus:bg-white focus:outline-none disabled:opacity-50">
               <option value="">선택...</option>
@@ -8867,7 +8957,7 @@ function ProductionPriorityScreen({ employee, onBack }) {
         <button type="submit" disabled={submitting}
           className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ListChecks className="h-4 w-4" />}
-          {submitting ? "요청중..." : "재단 작업자에게 생산 요청"}
+          {submitting ? (isTeam ? "지시중..." : "요청중...") : (isTeam ? "작업자에게 우선순위 지시" : "재단 작업자에게 생산 요청")}
         </button>
       </form>
 
@@ -8900,7 +8990,7 @@ function ProductionPriorityScreen({ employee, onBack }) {
                         {p.partNo && <span className="text-sm font-bold text-slate-900">{p.partNo}</span>}
                         {p.quantity !== "" && p.quantity != null && <span className="text-xs font-semibold text-slate-500">{Number(p.quantity).toLocaleString()}개</span>}
                         <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${p.status === "진행" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{p.status === "진행" ? "수락됨" : p.status}</span>
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">{isSalesReq ? "영업요청" : "생산전달"}</span>
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400">{p.requestType === "sales_request" ? "영업요청" : p.requestType === "team_order" ? "팀장지시" : "생산전달"}</span>
                       </div>
                       <p className="mt-1 break-keep text-xs text-slate-500">
                         {p.requesterName} → <span className="font-semibold text-slate-700">{p.targetName}</span>
@@ -9116,8 +9206,11 @@ function GimhaeHome({ employee }) {
   if (activeScreen === "production_urgent") {
     return <ProductionUrgentRequestScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
-  if (activeScreen === "production_priority" || activeScreen === "customer_production_request") {
-    return <ProductionPriorityScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  if (activeScreen === "customer_production_request") {
+    return <ProductionPriorityScreen employee={employee} mode="sales" onBack={() => setActiveScreen(null)} />;
+  }
+  if (activeScreen === "production_priority" || activeScreen === "production_team_priority") {
+    return <ProductionPriorityScreen employee={employee} mode="team" onBack={() => setActiveScreen(null)} />;
   }
   if (activeScreen === "invoice_intake") {
     return <InvoiceIntakeScreen employee={employee} onBack={() => setActiveScreen(null)} />;
@@ -9154,17 +9247,17 @@ function GimhaeHome({ employee }) {
     {
       team: "생산팀",
       cards: [
-        { key: "production_log", icon: ClipboardList, label: "생산일보 등록", desc: "PART NO·시간·생산량 연달아 입력 + 작업자 서명", adminOnly: false },
+        { key: "production_log", icon: ClipboardList, label: "생산일보 등록", desc: "동·설비별 생산 입력 + 점착LOT 연동 + 서명", adminOnly: false },
         { key: "production_dashboard", icon: BarChart3, label: "실시간 생산 대시보드", desc: "오늘 생산량·상태·생산자·시간대별 추이", adminOnly: false },
         { key: "mold_location", icon: MapPin, label: "목형 위치 찾기", desc: "PART NO로 목형 보관 위치(동·구역·열) 검색", adminOnly: false },
         { key: "work_instruction", icon: FileText, label: "작업지시서", desc: "목형별 압력·수량·주의사항·원단·사진", adminOnly: false },
-        { key: "production_urgent", icon: Megaphone, label: "생산 긴급요청", desc: "급한 생산 요청 등록(전체 알림·푸시)", adminOnly: false, urgent: true },
+        { key: "production_team_priority", icon: ListChecks, label: "생산 우선순위 지시", desc: "팀장이 작업자에게 '이 작업 끝나면 OO부터 우선 생산' 지시", adminOnly: false },
       ],
     },
     {
       team: "영업팀",
       cards: [
-        { key: "customer_production_request", icon: ListChecks, label: "[고객사]제품 생산 요청", desc: "긴급 PART NO를 재단 작업자에게 생산 요청 → 수락/거절", adminOnly: false },
+        { key: "customer_production_request", icon: Megaphone, label: "생산 긴급요청", desc: "고객사 긴급 PART NO를 재단 작업자에게 요청 → 수락/거절", adminOnly: false, urgent: true },
         { key: "schedule", icon: MapPin, label: "오늘일정", desc: "거래처 순회 납품 일정/완료처리", adminOnly: false },
         { key: "schedule_register", icon: PlusCircle, label: "일정 등록", desc: "신규 납품/방문 일정 빠르게 등록", adminOnly: true },
         { key: "route_optimizer", icon: Route, label: "동선 최적화", desc: "합짐 제안 + 절감 효과(거리/시간/유류비)", adminOnly: true },
