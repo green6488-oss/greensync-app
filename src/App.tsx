@@ -937,10 +937,40 @@ async function listAdhesiveLots(actorEmployeeId) {
     rollLengthM: l.roll_length_m,
     rollWidthMm: l.roll_width_mm,
     separatorSize: l.separator_size,
+    fabricType: l.fabric_type,
+    thickness: l.thickness,
     stock: l.stock,
   }));
 }
 
+/**
+ * 자재마스터의 "재질" 문자열에서 원단 종류와 두께를 뽑아낸다.
+ * 예) "PE 3T*20*696=금형"  → { fabric: "PE", thickness: "3" }
+ *     "PE10T*278.4*422.2=금형" → { fabric: "PE", thickness: "10" }
+ *     "PVC+PE튜브(B) 10T*15..." → { fabric: "PVC+PE튜브(B)", thickness: "10" }
+ * 규칙: 문자열 앞부분에서 "<원단><공백?><숫자>T" 패턴을 찾는다. 두께 앞의 텍스트가 원단.
+ * 난연/비난연 같은 구분은 무시하고 원단·두께만 본다(사용자 요청).
+ */
+function parseMaterialSpec(materialStr) {
+  const s = String(materialStr || "").trim();
+  if (!s) return null;
+  // 두께 토큰(숫자+T) 위치를 찾는다. 첫 번째 것을 기준으로 앞을 원단으로 본다.
+  const m = s.match(/^(.*?)\s*(\d+(?:\.\d+)?)\s*T\b/i);
+  if (!m) return null;
+  const fabric = String(m[1] || "").trim();
+  const thickness = String(m[2] || "").trim();
+  if (!fabric || !thickness) return null;
+  return { fabric, thickness };
+}
+
+/** 원단/두께 비교용 정규화 — 공백·대소문자·괄호주석 무시. 예: "SEAL(흰색)" → "SEAL" */
+function normSpecToken(v) {
+  return String(v || "")
+    .replace(/\([^)]*\)/g, "")   // 괄호 주석 제거: PU(흰색) → PU
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "");
+}
 /** 자재마스터(김해) PART NO 근사치 검색 — 생산일보 자동완성용(PART NO + 재질 + 협력사). */
 async function searchGimhaeMaterial(actorEmployeeId, query) {
   const data = await callGasWebApp({ action: "searchGimhaeMaterial", actor_employee_id: actorEmployeeId, query });
@@ -7731,6 +7761,27 @@ function ProductionLogScreen({ employee, onBack }) {
   //  롤: 길이 L(m)=rollLengthM, 너비 W(mm)=rollWidthMm  →  롤을 mm로 환산(L*1000 × W)
   //  제품: 너비 a(mm) × 폭 b(mm)  →  한 방향으로 격자 배치: floor(W/a) × floor(L*1000/b)
   const selectedRoll = adhesiveLots.find((l) => l.adhesiveLot === adhesiveLot);
+
+  // PART NO의 재질(원단·두께)과 같은 점착LOT만 고를 수 있게 거른다.
+  // 예) 재질이 "PE 3T*20*696=금형"이면 PE 3T 롤만 선택 가능(난연/비난연 구분은 무시).
+  // 재질을 아직 모르거나(자재마스터 미등록) 파싱이 안 되면 전체를 보여준다.
+  const requiredSpec = parseMaterialSpec(material);
+  const selectableLots = (() => {
+    if (!requiredSpec) return adhesiveLots;
+    const wantFab = normSpecToken(requiredSpec.fabric);
+    const wantThk = normSpecToken(requiredSpec.thickness);
+    const filtered = adhesiveLots.filter((l) => {
+      // 백엔드가 내려준 원단·두께가 있으면 그것으로 정확히 비교.
+      if (l.fabricType || l.thickness) {
+        return normSpecToken(l.fabricType) === wantFab && normSpecToken(l.thickness) === wantThk;
+      }
+      // 옛 데이터(원단·두께 칸이 빈 경우)는 LOT 문자열에서 유추한다.
+      const parsed = parseMaterialSpec(String(l.adhesiveLot || "").replace(/^(난연|비난연|난가교)\s*/, ""));
+      if (!parsed) return false;
+      return normSpecToken(parsed.fabric) === wantFab && normSpecToken(parsed.thickness) === wantThk;
+    });
+    return filtered;
+  })();
   const cutYield = (() => {
     if (!selectedRoll) return null;
     const L = Number(selectedRoll.rollLengthM);   // m
@@ -8016,7 +8067,7 @@ function ProductionLogScreen({ employee, onBack }) {
         {/* ===== C동 재단 (A동 연동) ===== */}
         {facType === "cutting" && (
           <>
-            <AdhesiveLotPicker lots={adhesiveLots} value={adhesiveLot} onChange={setAdhesiveLot} disabled={submitting} inputCls={inputCls} />
+            <AdhesiveLotPicker lots={selectableLots} value={adhesiveLot} onChange={setAdhesiveLot} disabled={submitting} inputCls={inputCls} requiredSpec={requiredSpec} allCount={adhesiveLots.length} />
             <div>
               <label className="text-xs font-semibold text-slate-500">PART NO *</label>
               <div className="mt-1.5 flex items-start gap-2">
@@ -8089,7 +8140,7 @@ function ProductionLogScreen({ employee, onBack }) {
         {/* ===== 프레스/도레미/씰링/수직기 (공통) ===== */}
         {(facType === "press" || facType === "doremi" || facType === "sealing" || facType === "vertical" || facType === "other") && (
           <>
-            <AdhesiveLotPicker lots={adhesiveLots} value={adhesiveLot} onChange={setAdhesiveLot} disabled={submitting} inputCls={inputCls} />
+            <AdhesiveLotPicker lots={selectableLots} value={adhesiveLot} onChange={setAdhesiveLot} disabled={submitting} inputCls={inputCls} requiredSpec={requiredSpec} allCount={adhesiveLots.length} />
             <div>
               <label className="text-xs font-semibold text-slate-500">PART NO *</label>
               <div className="mt-1.5 flex items-start gap-2">
@@ -8187,14 +8238,19 @@ function ProductionLogScreen({ employee, onBack }) {
 }
 
 /** 점착LOT 선택기 — A동에서 생산된 LOT를 목록에서 고르거나 직접 입력. */
-function AdhesiveLotPicker({ lots, value, onChange, disabled, inputCls }) {
+function AdhesiveLotPicker({ lots, value, onChange, disabled, inputCls, requiredSpec, allCount }) {
   const [showList, setShowList] = useState(false);
   const selected = lots.find((l) => l.adhesiveLot === value);
+  const filteredOut = requiredSpec && allCount != null && allCount > lots.length;
   return (
     <div>
-      <label className="text-xs font-semibold text-slate-500">점착LOT * <span className="font-normal text-slate-400">(A동 생산 목록에서 선택)</span></label>
+      <label className="text-xs font-semibold text-slate-500">
+        점착LOT * <span className="font-normal text-slate-400">
+          {requiredSpec ? `(${requiredSpec.fabric} ${requiredSpec.thickness}T 롤만 선택 가능)` : "(A동 생산 목록에서 선택)"}
+        </span>
+      </label>
       <div className="mt-1.5 flex items-center gap-2">
-        <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="예: 난연 PU 5T 260711" disabled={disabled} className={inputCls} />
+        <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="예: 난연 PU 5T 대 260713" disabled={disabled} className={inputCls} />
         <button type="button" onClick={() => setShowList((v) => !v)} disabled={disabled} className="flex h-[46px] flex-shrink-0 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 transition-all active:scale-95 disabled:opacity-50">
           목록 <ChevronLeft className={`h-3.5 w-3.5 transition-transform ${showList ? "rotate-90" : "-rotate-90"}`} />
         </button>
@@ -8202,9 +8258,16 @@ function AdhesiveLotPicker({ lots, value, onChange, disabled, inputCls }) {
       {selected && selected.createdLabel && (
         <p className="mt-1.5 text-[11px] text-slate-400">{selected.createdLabel} 생산</p>
       )}
+      {filteredOut && (
+        <p className="mt-1.5 text-[11px] text-slate-400">재질이 다른 롤 {allCount - lots.length}개는 목록에서 숨겨졌어요</p>
+      )}
       {showList && (
         <div className="mt-2 max-h-64 space-y-1.5 overflow-y-auto rounded-xl bg-slate-50 p-2">
-          {lots.length === 0 && <p className="py-3 text-center text-[11px] text-slate-400">A동에서 생산된 점착LOT가 없습니다.</p>}
+          {lots.length === 0 && (
+            <p className="py-3 text-center text-[11px] text-slate-400">
+              {requiredSpec ? `${requiredSpec.fabric} ${requiredSpec.thickness}T 롤이 없습니다` : "A동에서 생산된 점착LOT가 없습니다."}
+            </p>
+          )}
           {lots.map((l) => (
             <button key={l.adhesiveLot} type="button" onClick={() => { onChange(l.adhesiveLot); setShowList(false); }}
               className="flex w-full items-center justify-between gap-2 rounded-lg bg-white px-3 py-2.5 text-left shadow-sm transition-all active:scale-[0.98]">
