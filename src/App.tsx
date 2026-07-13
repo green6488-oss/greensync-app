@@ -7670,11 +7670,12 @@ function ProductionLogScreen({ employee, onBack }) {
   const [fabricLot, setFabricLot] = useState("");
   const [fabricType, setFabricType] = useState("PU");
   const [fabricTypeCustom, setFabricTypeCustom] = useState(""); // "기타" 선택 시 직접 입력
-  const [flameType, setFlameType] = useState("난연");
+  const [flameType, setFlameType] = useState(""); // 비고: 난연/비난연/난가교 (빈칸 허용)
   const [thickness, setThickness] = useState("");
   const [prodDate, setProdDate] = useState(todayYYMMDD); // LOT 자동조합용 날짜(YYMMDD)
   const [moveTo, setMoveTo] = useState("보관"); // 보관 | C동
   const [separatorSize, setSeparatorSize] = useState("대"); // 분리지 규격(소/대/특대) → 롤 너비
+  const [adhesiveLotOverride, setAdhesiveLotOverride] = useState(null); // A동 점착LOT 직접 수정값(null이면 자동)
 
   // 재단 계산 — 제품 너비×폭(mm)으로 롤에서 나오는 재단 가능 수량(EA)을 자동 산출
   const [cutWidth, setCutWidth] = useState("");  // 제품 너비(mm)
@@ -7690,6 +7691,14 @@ function ProductionLogScreen({ employee, onBack }) {
   const [storeLocation, setStoreLocation] = useState("");
 
   const STORE_LOCATIONS = ["C동 1층", "C동 2층", "B동 1층", "사무동 1층"];
+  // 원단 종류(=품명) — 현장 생산일보 기준 전체 목록.
+  const FABRIC_TYPES = [
+    "PE", "PU", "PU+G/W", "PE+PU", "EPDM", "OPEN CELL", "아티론", "무가교", "SEAL",
+    "PU(G)", "PU(W)", "FELT(N)", "FELT(PE)", "NBR", "NBR튜브", "G/L", "PU(B)",
+    "양면", "PVC", "전자선", "기타",
+  ];
+  // 비고(구분) — 난연/비난연/난가교. 빈칸으로 두는 경우도 많아 "없음"을 기본값으로 둔다.
+  const FLAME_TYPES = ["", "난연", "비난연", "난가교"];
   // C동 설비를 그룹으로 정렬(사진3 요청).
   const C_GROUPS = [
     { group: null, items: ["재단"] },
@@ -7714,6 +7723,9 @@ function ProductionLogScreen({ employee, onBack }) {
   const facType = facilityTypeOf(building, facility);
   // A동 점착LOT 자동 조합 미리보기
   const autoAdhesiveLot = [flameType, effectiveFabricType, thickness ? thickness + "T" : "", separatorSize, prodDate].filter((x) => x).join(" ");
+  // A동 점착LOT은 자동 생성하되 작업자가 수정할 수 있다. 수정하지 않았으면(null)
+  // 위 자동 조합값을 그대로 쓰고, 한 번이라도 고치면 그 값을 우선한다.
+  const effectiveAdhesiveLotA = adhesiveLotOverride != null ? adhesiveLotOverride : autoAdhesiveLot;
 
   // 재단 계산 — 선택한 점착LOT(롤)의 규격과 제품 규격으로 재단 가능 수량(EA) 산출.
   //  롤: 길이 L(m)=rollLengthM, 너비 W(mm)=rollWidthMm  →  롤을 mm로 환산(L*1000 × W)
@@ -7750,7 +7762,7 @@ function ProductionLogScreen({ employee, onBack }) {
   useEffect(() => { reload(); }, []);
 
   // 동/설비를 바꾸면 이전 화면의 저장 알림·오류를 정리(사진4 버그: 알림이 따라오던 문제).
-  useEffect(() => { setNotice(null); setFormError(""); }, [building, facility]);
+  useEffect(() => { setNotice(null); setFormError(""); setAdhesiveLotOverride(null); }, [building, facility]);
 
   const resetLineInputs = () => {
     setQuantity(""); setSignature(null); setSigKey((k) => k + 1);
@@ -7784,7 +7796,8 @@ function ProductionLogScreen({ employee, onBack }) {
     // 설비별 필수값 확인
     if (facType === "adhesive") {
       if (fabricType === "기타" && !fabricTypeCustom.trim()) { setFormError("기타 원단종류를 직접 입력해주세요."); return; }
-      if (!thickness.trim() || !quantity) { setFormError("두께와 생산수량(m)을 입력해주세요."); return; }
+      if (!thickness.trim() || !quantity) { setFormError("두께와 수량(m)을 입력해주세요."); return; }
+      if (!effectiveAdhesiveLotA.trim()) { setFormError("점착LOT을 입력해주세요."); return; }
     } else if (facType === "cutting") {
       if (!adhesiveLot.trim() || !partNo.trim()) { setFormError("점착LOT·PART NO는 필수입니다."); return; }
       if (!cutYield || cutYield.total <= 0) { setFormError("제품 너비·폭을 입력하면 재단 가능 수량이 자동 계산됩니다."); return; }
@@ -7811,7 +7824,7 @@ function ProductionLogScreen({ employee, onBack }) {
         moveTo: facType === "adhesive" ? moveTo : "",
         prodDateYymmdd: prodDate,
         separatorSize: facType === "adhesive" ? separatorSize : "",
-        adhesiveLot: facType === "adhesive" ? "" : adhesiveLot.trim(),
+        adhesiveLot: facType === "adhesive" ? effectiveAdhesiveLotA.trim() : adhesiveLot.trim(),
         signatureBase64: signature,
       });
       if (facType === "adhesive" && result.adhesiveLot) {
@@ -7822,7 +7835,7 @@ function ProductionLogScreen({ employee, onBack }) {
         setNotice("생산일보가 저장되었습니다.");
       }
       resetLineInputs();
-      setCutWidth(""); setCutDepth("");
+      setCutWidth(""); setCutDepth(""); setAdhesiveLotOverride(null);
       await reload();
     } catch (err) {
       setFormError(err.message || "저장 중 오류가 발생했습니다.");
@@ -7930,26 +7943,16 @@ function ProductionLogScreen({ employee, onBack }) {
               </div>
             </div>
             <div>
-              <label className="text-xs font-semibold text-slate-500">원단 종류</label>
-              <div className="mt-1.5 flex gap-1 rounded-2xl bg-slate-100 p-1">
-                {["PU", "PE", "기타"].map((t) => (
-                  <button key={t} type="button" onClick={() => setFabricType(t)} disabled={submitting} className={segBtn(fabricType === t)} style={fabricType === t ? { backgroundColor: BRAND.deepGreen } : {}}>{t}</button>
-                ))}
-              </div>
+              <label className="text-xs font-semibold text-slate-500">품명(원단 종류)</label>
+              <select value={fabricType} onChange={(e) => setFabricType(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`}>
+                {FABRIC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
               {fabricType === "기타" && (
                 <input value={fabricTypeCustom} onChange={(e) => setFabricTypeCustom(e.target.value)} placeholder="원단 종류 직접 입력" disabled={submitting} className={`mt-2 ${inputCls}`} />
               )}
             </div>
             <div>
-              <label className="text-xs font-semibold text-slate-500">구분</label>
-              <div className="mt-1.5 flex gap-1 rounded-2xl bg-slate-100 p-1">
-                {["난연", "비난연"].map((t) => (
-                  <button key={t} type="button" onClick={() => setFlameType(t)} disabled={submitting} className={segBtn(flameType === t)} style={flameType === t ? { backgroundColor: BRAND.deepGreen } : {}}>{t}</button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-500">분리지 규격 <span className="font-normal text-slate-400">(롤 너비 결정)</span></label>
+              <label className="text-xs font-semibold text-slate-500">규격(분리지) <span className="font-normal text-slate-400">소 1,100 · 대 1,170 · 특대 1,200mm</span></label>
               <div className="mt-1.5 flex gap-1 rounded-2xl bg-slate-100 p-1">
                 {["소", "대", "특대"].map((t) => (
                   <button key={t} type="button" onClick={() => setSeparatorSize(t)} disabled={submitting} className={segBtn(separatorSize === t)} style={separatorSize === t ? { backgroundColor: BRAND.deepGreen } : {}}>{t}</button>
@@ -7962,14 +7965,42 @@ function ProductionLogScreen({ employee, onBack }) {
                 <input value={thickness} onChange={(e) => setThickness(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="예: 5" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-500">생산수량(m) *</label>
+                <label className="text-xs font-semibold text-slate-500">수량(m) *</label>
                 <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
               </div>
             </div>
-            <div className="rounded-xl bg-slate-50 px-3 py-2.5">
-              <p className="text-[11px] font-semibold text-slate-500">자동 생성될 점착LOT</p>
-              <p className="mt-0.5 text-sm font-bold" style={{ color: BRAND.deepGreen }}>{autoAdhesiveLot || "구분·원단·두께·날짜를 입력하세요"}</p>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">비고(구분) <span className="font-normal text-slate-400">비워둬도 됩니다</span></label>
+              <select value={flameType} onChange={(e) => setFlameType(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`}>
+                {FLAME_TYPES.map((t) => <option key={t || "none"} value={t}>{t || "(없음)"}</option>)}
+              </select>
             </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">점착LOT <span className="font-normal text-slate-400">(자동 생성 · 수정 가능)</span></label>
+              <div className="mt-1.5 flex items-center gap-2">
+                <input
+                  value={effectiveAdhesiveLotA}
+                  onChange={(e) => setAdhesiveLotOverride(e.target.value)}
+                  placeholder="예: 난연 PU 5T 소 260712"
+                  disabled={submitting}
+                  className={inputCls}
+                />
+                {adhesiveLotOverride != null && (
+                  <button type="button" onClick={() => setAdhesiveLotOverride(null)} disabled={submitting}
+                    className="flex h-[46px] flex-shrink-0 items-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-500 transition-all active:scale-95">
+                    자동
+                  </button>
+                )}
+              </div>
+              {adhesiveLotOverride == null && <p className="mt-1 text-[11px] text-slate-400">품명·두께·규격·날짜로 자동 조합됩니다</p>}
+            </div>
+            {/* 어떤 원자재가 얼마나 차감되는지 미리 보여준다(두께별 별개 재고). */}
+            {effectiveFabricType && thickness && (
+              <p className="rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+                차감될 원자재: <span className="font-bold">{effectiveFabricType} {thickness}T</span>
+                {quantity ? ` · ${Number(quantity).toLocaleString()}m` : ""}
+              </p>
+            )}
             <div>
               <label className="text-xs font-semibold text-slate-500">생산 후 이동</label>
               <div className="mt-1.5 flex gap-1 rounded-2xl bg-slate-100 p-1">
@@ -8060,22 +8091,34 @@ function ProductionLogScreen({ employee, onBack }) {
           <>
             <AdhesiveLotPicker lots={adhesiveLots} value={adhesiveLot} onChange={setAdhesiveLot} disabled={submitting} inputCls={inputCls} />
             <div>
-              <label className="text-xs font-semibold text-slate-500">협력사</label>
-              <input value={customer} onChange={(e) => setCustomer(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
-            </div>
-            <div>
               <label className="text-xs font-semibold text-slate-500">PART NO *</label>
               <div className="mt-1.5 flex items-start gap-2">
                 <div className="flex-1">
-                  <PartNoAutocomplete employeeId={employee.employeeId} value={partNo} onChange={setPartNo} onSelectMaterial={setMaterial} disabled={submitting} inputCls={inputCls} />
+                  <PartNoAutocomplete employeeId={employee.employeeId} value={partNo} onChange={setPartNo} onSelectMaterial={setMaterial} onSelectPartNo={fetchVendorsFor} disabled={submitting} inputCls={inputCls} />
                 </div>
                 <button type="button" onClick={() => setScannerOpen(true)} disabled={submitting} className="flex h-[46px] w-[46px] flex-shrink-0 items-center justify-center rounded-xl text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}><ScanLine className="h-5 w-5" /></button>
               </div>
               {material && <p className="mt-1.5 break-keep text-[12px] text-slate-500">재질: <span className="font-semibold text-slate-700">{material}</span></p>}
             </div>
             <div>
-              <label className="text-xs font-semibold text-slate-500">생산수량 *</label>
+              <label className="text-xs font-semibold text-slate-500">수량 *</label>
               <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500">납품처 <span className="font-normal text-slate-400">(PART NO 선택 시 자동 추천)</span></label>
+              <input value={customer} onChange={(e) => setCustomer(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+              {vendorOptions.length > 1 && (
+                <div className="mt-2">
+                  <p className="text-[11px] text-slate-400">이 PART NO의 납품처가 여러 곳입니다 · 선택하세요</p>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {vendorOptions.map((v) => (
+                      <button key={v} type="button" onClick={() => setCustomer(v)}
+                        className={`rounded-full px-3 py-1.5 text-xs font-bold transition-all active:scale-95 ${customer === v ? "text-white" : "border border-slate-200 text-slate-600"}`}
+                        style={customer === v ? { backgroundColor: BRAND.deepGreen } : {}}>{v}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500">보관위치</label>
