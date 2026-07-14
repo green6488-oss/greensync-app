@@ -4548,7 +4548,12 @@ function CompletionReportModal({ item, customer, employee, onClose, onSubmit }) 
 
   // 영업부 출고 차감 — 납품 완료 시 출고한 완제품(PART NO·수량)을 여기서 잡으면
   // 완제품 재고에서 차감된다. 여러 품목을 연달아 추가할 수 있다.
-  const [shipItems, setShipItems] = useState([]);
+  // 일정 등록 때 담아둔 납품 품목이 있으면 그걸로 미리 채워준다(작업자는 확인/수정만).
+  const [shipItems, setShipItems] = useState(() =>
+    (item && item.deliveryItems && item.deliveryItems.length > 0)
+      ? item.deliveryItems.map((it) => ({ partNo: String(it.partNo || ""), quantity: String(it.quantity || "") }))
+      : []
+  );
   const [scannerIdx, setScannerIdx] = useState(null);
   const [stockMap, setStockMap] = useState(null); // 완제품 PART NO → 현재 재고
 
@@ -4687,7 +4692,11 @@ function CompletionReportModal({ item, customer, employee, onClose, onSubmit }) 
         {/* 영업부 출고 차감 — 이번에 출고한 완제품을 잡으면 완제품 재고에서 빠진다 */}
         <div className="mt-4">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-semibold text-slate-500">출고 품목 <span className="font-normal text-slate-400">(선택 · 완제품 재고에서 차감)</span></label>
+            <label className="text-xs font-semibold text-slate-500">
+              출고 품목 <span className="font-normal text-slate-400">
+                {(item && item.deliveryItems && item.deliveryItems.length > 0) ? "(일정에서 불러옴 · 재고 차감)" : "(선택 · 완제품 재고에서 차감)"}
+              </span>
+            </label>
             <button type="button" onClick={addShipItem} disabled={submitting} className="flex items-center gap-1 text-xs font-bold disabled:opacity-50" style={{ color: BRAND.deepGreen }}>
               <PlusCircle className="h-3.5 w-3.5" /> 품목 추가
             </button>
@@ -8924,9 +8933,9 @@ function InventoryLedgerScreen({ employee, onBack }) {
 
       {/* 세그먼트 탭 */}
       <div className="mt-4 flex gap-1 rounded-2xl bg-slate-100 p-1">
-        {["원자재", "완제품"].map((k) => (
+        {["원자재", "점착완제품", "재단완제품", "완제품"].map((k) => (
           <button key={k} onClick={() => setKind(k)}
-            className={`flex-1 rounded-xl py-2.5 text-sm font-bold transition-all ${kind === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-400"}`}>
+            className={`flex-1 rounded-xl py-2.5 text-[11px] font-bold transition-all ${kind === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-400"}`}>
             {k}
           </button>
         ))}
@@ -9041,9 +9050,9 @@ function InventoryStatusScreen({ employee, onBack }) {
 
       {/* 세그먼트 탭 — iOS 스타일 */}
       <div className="mt-4 flex gap-1 rounded-2xl bg-slate-100 p-1">
-        {["원자재", "완제품"].map((k) => (
+        {["원자재", "점착완제품", "재단완제품", "완제품"].map((k) => (
           <button key={k} onClick={() => setKind(k)}
-            className={`flex-1 rounded-xl py-2.5 text-sm font-bold transition-all ${kind === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-400"}`}>
+            className={`flex-1 rounded-xl py-2.5 text-[11px] font-bold transition-all ${kind === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-400"}`}>
             {k}
           </button>
         ))}
