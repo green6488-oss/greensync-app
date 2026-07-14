@@ -1413,6 +1413,7 @@ async function completeGimhaeSchedule(actorEmployeeId, dispatchId, extra = {}) {
     photoUrl: data.photo_url,
     signatureUrl: data.signature_url,
     shipmentCount: data.shipment_count,
+    shipmentDebug: data.shipment_debug,
     mileageApplied: data.mileage_applied
       ? { vehicleLabel: data.mileage_applied.vehicle_label, distanceKm: data.mileage_applied.distance_km, currentMileage: data.mileage_applied.current_mileage }
       : null,
@@ -5669,9 +5670,22 @@ function GimhaeScheduleScreen({ employee, onBack, initialShowRegisterForm = fals
     try {
       const result = await completeGimhaeSchedule(employee.employeeId, item.dispatchId, reportData);
       setReportTarget(null);
-      if (result.mileageApplied) {
-        setCompleteNotice(`${result.mileageApplied.vehicleLabel} 차량 주행거리에 ${result.mileageApplied.distanceKm}km가 자동으로 반영됐습니다.`);
+      // 출고 차감 결과를 알려준다 — 몇 건이 재고에서 빠졌는지, 안 빠졌으면 왜인지.
+      const notices = [];
+      if (result.shipmentCount > 0) {
+        notices.push(`완제품 재고에서 ${result.shipmentCount}개 품목이 출고 차감됐습니다.`);
+      } else if (result.shipmentDebug) {
+        const d = result.shipmentDebug;
+        if (d.parsed_count === 0) {
+          notices.push("출고 품목이 없어 재고 차감이 되지 않았습니다.");
+        } else if (d.skipped && d.skipped.length > 0) {
+          notices.push(`출고 차감 실패: ${d.skipped.join(" / ")}`);
+        }
       }
+      if (result.mileageApplied) {
+        notices.push(`${result.mileageApplied.vehicleLabel} 차량 주행거리에 ${result.mileageApplied.distanceKm}km가 자동으로 반영됐습니다.`);
+      }
+      if (notices.length > 0) setCompleteNotice(notices.join(" "));
       await reload();
       // 49번 요청 — 방금 완료한 곳을 다음 출발지 기본값으로 갱신하고, "추가 일정이
       // 있으신가요?" 안내를 띄운다. 어느 쪽을 눌러도 다음 출발 등록 입력칸에는
