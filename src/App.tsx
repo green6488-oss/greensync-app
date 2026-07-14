@@ -6043,6 +6043,7 @@ function GimhaeScheduleRegisterForm({ employee, customers, onRegistered, onCance
   // 납품 품목 — 거래처를 고르면 그 업체의 완제품 재고를 불러와 담을 수 있게 한다.
   // 담아둔 품목은 "납품 완료" 시 완제품 재고에서 자동으로 빠진다.
   const [stockItems, setStockItems] = useState([]);   // 그 업체의 완제품 재고 목록
+  const [stockQuery, setStockQuery] = useState("");   // PART NO 검색어
   const [stockLoading, setStockLoading] = useState(false);
   const [cart, setCart] = useState([]);               // [{partNo, quantity, balance}]
 
@@ -6056,6 +6057,7 @@ function GimhaeScheduleRegisterForm({ employee, customers, onRegistered, onCance
     setQuery("");
     setCart([]);
     setStockItems([]);
+    setStockQuery("");
     setStockLoading(true);
     try {
       const items = await listDeliverableStock(employee.employeeId, c.customerName);
@@ -6075,6 +6077,18 @@ function GimhaeScheduleRegisterForm({ employee, customers, onRegistered, onCance
     setCart((prev) => prev.map((x) => (x.partNo === partNo ? { ...x, quantity: qty.replace(/[^0-9]/g, "") } : x)));
   };
   const removeFromCart = (partNo) => setCart((prev) => prev.filter((x) => x.partNo !== partNo));
+
+  // 담을 수 있는 품목 — 재고가 있는 것만 보여주고(0 이하 제외), 이미 담은 건 빼고,
+  // 검색어가 있으면 PART NO로 걸러준다. 품목이 많아 검색이 꼭 필요하다.
+  const availableStock = stockItems.filter((it) => {
+    if (it.balance <= 0) return false;                       // 재고 0 이하 제외
+    if (cart.some((c) => c.partNo === it.partNo)) return false; // 이미 담음
+    const q = stockQuery.trim().toUpperCase().replace(/\s+/g, "");
+    if (!q) return true;
+    return String(it.partNo).toUpperCase().replace(/\s+/g, "").indexOf(q) !== -1;
+  });
+  // 재고가 아예 없는(0 이하) 품목 수 — 안내 문구에 쓴다.
+  const outOfStockCount = stockItems.filter((it) => it.balance <= 0).length;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -6189,26 +6203,54 @@ function GimhaeScheduleRegisterForm({ employee, customers, onRegistered, onCance
 
           <div className="mt-2">
             {stockLoading && <p className="py-2 text-center text-[11px] text-slate-400">재고 불러오는 중...</p>}
+
+            {/* PART NO 검색 — 품목이 많으니 바로 찾을 수 있게 */}
+            {!stockLoading && stockItems.length > 0 && (
+              <input
+                value={stockQuery}
+                onChange={(e) => setStockQuery(e.target.value.toUpperCase())}
+                placeholder="PART NO 검색"
+                disabled={submitting}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 text-[12px] text-slate-800 placeholder:text-slate-300 transition-colors focus:bg-white focus:outline-none disabled:opacity-50"
+              />
+            )}
+
             {!stockLoading && stockItems.length === 0 && (
               <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-[11px] text-slate-400">
                 이 업체의 완제품 재고가 없습니다. (자재마스터에 협력사·PART NO가 등록돼 있어야 합니다)
               </p>
             )}
+
+            {/* 재고가 있는 품목만 보여준다(0 이하는 숨김) */}
             {!stockLoading && stockItems.length > 0 && (
-              <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-slate-100 p-1">
-                {stockItems.filter((it) => !cart.some((c) => c.partNo === it.partNo)).map((it) => (
+              <div className="mt-1.5 max-h-44 space-y-1 overflow-y-auto rounded-xl border border-slate-100 p-1">
+                {availableStock.length === 0 && (
+                  <p className="px-3 py-3 text-center text-[11px] text-slate-400">
+                    {stockQuery.trim()
+                      ? "검색 결과가 없습니다"
+                      : cart.length > 0
+                        ? "담을 수 있는 재고를 모두 담았습니다"
+                        : "재고가 있는 품목이 없습니다"}
+                  </p>
+                )}
+                {availableStock.map((it) => (
                   <button key={it.partNo} type="button" onClick={() => addToCart(it)} disabled={submitting}
                     className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-slate-50">
                     <div className="min-w-0">
                       <p className="truncate text-[12px] font-semibold text-slate-800">{it.partNo}</p>
                       {it.material && <p className="truncate text-[10px] text-slate-400">{it.material.length > 22 ? it.material.slice(0, 22) + "\u2026" : it.material}</p>}
                     </div>
-                    <span className={`flex-shrink-0 text-[11px] font-bold ${it.balance > 0 ? "text-slate-500" : "text-red-400"}`}>
+                    <span className="flex-shrink-0 text-[11px] font-bold text-slate-500">
                       {it.balance.toLocaleString()}EA
                     </span>
                   </button>
                 ))}
               </div>
+            )}
+
+            {/* 재고 0인 품목이 숨겨졌음을 알려준다 */}
+            {!stockLoading && outOfStockCount > 0 && (
+              <p className="mt-1.5 text-[11px] text-slate-400">재고 없는 품목 {outOfStockCount}개는 숨겨졌어요</p>
             )}
           </div>
         </div>
