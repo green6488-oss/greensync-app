@@ -1036,6 +1036,16 @@ async function getCutMethod(actorEmployeeId, partNo) {
   };
 }
 
+/** 업체별 납품 가능한 완제품 재고 — 영업 일정 등록에서 품목을 고를 때 쓴다. */
+async function listDeliverableStock(actorEmployeeId, customerName) {
+  const data = await callGasWebApp({ action: "listDeliverableStock", actor_employee_id: actorEmployeeId, customer_name: customerName });
+  return (data.items || []).map((it) => ({
+    partNo: it.part_no,
+    material: it.material,
+    balance: Number(it.balance) || 0,
+  }));
+}
+
 /** 재단 이력 목록 — 프레스(성형)에서 "어느 재단 건을 쓸지" 고르기 위한 목록. */
 async function listCutBatches(actorEmployeeId) {
   const data = await callGasWebApp({ action: "listCutBatches", actor_employee_id: actorEmployeeId });
@@ -1228,6 +1238,8 @@ async function listGimhaeSchedule() {
     originAddress: row.origin_address,
     originLat: row.origin_lat,
     originLng: row.origin_lng,
+    // 일정에 담아둔 납품 품목 — 완료 시 이만큼 완제품 재고에서 빠진다.
+    deliveryItems: (row.delivery_items || []).map((it) => ({ partNo: it.part_no, quantity: Number(it.quantity) })),
   }));
 }
 
@@ -1415,6 +1427,8 @@ async function createGimhaeSchedule(actorEmployeeId, body) {
     customer_id: body.customerId,
     customer_name: body.customerName,
     task_description: body.taskDescription,
+    // 납품 품목 — 일정에 담아두면 "납품 완료" 시 완제품 재고에서 자동으로 빠진다.
+    delivery_items: (body.deliveryItems || []).map((it) => ({ part_no: it.partNo, quantity: Number(it.quantity) })),
   });
   return { dispatchId: data.dispatch_id, status: data.status };
 }
@@ -6026,9 +6040,41 @@ function GimhaeScheduleRegisterForm({ employee, customers, onRegistered, onCance
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  // 납품 품목 — 거래처를 고르면 그 업체의 완제품 재고를 불러와 담을 수 있게 한다.
+  // 담아둔 품목은 "납품 완료" 시 완제품 재고에서 자동으로 빠진다.
+  const [stockItems, setStockItems] = useState([]);   // 그 업체의 완제품 재고 목록
+  const [stockLoading, setStockLoading] = useState(false);
+  const [cart, setCart] = useState([]);               // [{partNo, quantity, balance}]
+
   const filtered = query.trim()
     ? customers.filter((c) => String(c.customerName).toLowerCase().includes(query.trim().toLowerCase()))
     : customers;
+
+  // 거래처가 정해지면 그 업체 납품 가능 재고를 불러온다.
+  const pickCustomer = async (c) => {
+    setSelectedCustomer(c);
+    setQuery("");
+    setCart([]);
+    setStockItems([]);
+    setStockLoading(true);
+    try {
+      const items = await listDeliverableStock(employee.employeeId, c.customerName);
+      setStockItems(items);
+    } catch (e) {
+      setStockItems([]);
+    } finally {
+      setStockLoading(false);
+    }
+  };
+
+  const addToCart = (item) => {
+    if (cart.some((x) => x.partNo === item.partNo)) return; // 이미 담음
+    setCart((prev) => [...prev, { partNo: item.partNo, quantity: "", balance: item.balance }]);
+  };
+  const updateCartQty = (partNo, qty) => {
+    setCart((prev) => prev.map((x) => (x.partNo === partNo ? { ...x, quantity: qty.replace(/[^0-9]/g, "") } : x)));
+  };
+  const removeFromCart = (partNo) => setCart((prev) => prev.filter((x) => x.partNo !== partNo));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -6040,6 +6086,12 @@ function GimhaeScheduleRegisterForm({ employee, customers, onRegistered, onCance
       setError("작업내용을 입력해주세요.");
       return;
     }
+    // 담은 품목 중 수량이 비었거나 0이면 막는다(실수로 0개 납품 등록 방지).
+    const items = cart.filter((x) => x.partNo);
+    if (items.some((x) => !x.quantity || Number(x.quantity) <= 0)) {
+      setError("담은 품목의 수량을 입력해주세요.");
+      return;
+    }
     setError("");
     setSubmitting(true);
     try {
@@ -6047,6 +6099,7 @@ function GimhaeScheduleRegisterForm({ employee, customers, onRegistered, onCance
         customerId: selectedCustomer.customerId,
         customerName: selectedCustomer.customerName,
         taskDescription: taskDescription.trim(),
+        deliveryItems: items.map((x) => ({ partNo: x.partNo, quantity: Number(x.quantity) })),
       });
       onRegistered();
     } catch (err) {
@@ -6073,7 +6126,7 @@ function GimhaeScheduleRegisterForm({ employee, customers, onRegistered, onCance
               <button
                 key={c.customerId}
                 type="button"
-                onClick={() => { setSelectedCustomer(c); setQuery(""); }}
+                onClick={() => pickCustomer(c)}
                 className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
               >
                 <span className="font-semibold">{c.customerName}</span>
@@ -6097,6 +6150,69 @@ function GimhaeScheduleRegisterForm({ employee, customers, onRegistered, onCance
           className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
         />
       </div>
+
+      {/* 납품 품목 — 거래처를 고르면 그 업체의 완제품 재고에서 담는다.
+          담은 품목은 "납품 완료" 시 재고에서 자동으로 빠진다. */}
+      {selectedCustomer && (
+        <div>
+          <label className="text-xs font-semibold text-slate-500">
+            납품 품목 <span className="font-normal text-slate-400">(완료 시 재고 자동 차감)</span>
+          </label>
+
+          {cart.length > 0 && (
+            <div className="mt-1.5 space-y-1.5">
+              {cart.map((x) => (
+                <div key={x.partNo} className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[12px] font-bold text-slate-800">{x.partNo}</p>
+                    <p className="text-[10px] text-slate-400">재고 {x.balance.toLocaleString()}EA</p>
+                  </div>
+                  <input
+                    value={x.quantity}
+                    onChange={(e) => updateCartQty(x.partNo, e.target.value)}
+                    placeholder="수량"
+                    inputMode="numeric"
+                    disabled={submitting}
+                    className="w-20 flex-shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center text-[12px] text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50"
+                  />
+                  <button type="button" onClick={() => removeFromCart(x.partNo)} disabled={submitting}
+                    className="flex-shrink-0 rounded-lg px-1.5 py-1 text-slate-300 transition-colors hover:text-red-500">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              {cart.some((x) => x.quantity && Number(x.quantity) > x.balance) && (
+                <p className="text-[11px] text-amber-600">재고보다 많은 수량이 있어요. 그대로 등록하면 재고가 마이너스가 됩니다.</p>
+              )}
+            </div>
+          )}
+
+          <div className="mt-2">
+            {stockLoading && <p className="py-2 text-center text-[11px] text-slate-400">재고 불러오는 중...</p>}
+            {!stockLoading && stockItems.length === 0 && (
+              <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-[11px] text-slate-400">
+                이 업체의 완제품 재고가 없습니다. (자재마스터에 협력사·PART NO가 등록돼 있어야 합니다)
+              </p>
+            )}
+            {!stockLoading && stockItems.length > 0 && (
+              <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-slate-100 p-1">
+                {stockItems.filter((it) => !cart.some((c) => c.partNo === it.partNo)).map((it) => (
+                  <button key={it.partNo} type="button" onClick={() => addToCart(it)} disabled={submitting}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-slate-50">
+                    <div className="min-w-0">
+                      <p className="truncate text-[12px] font-semibold text-slate-800">{it.partNo}</p>
+                      {it.material && <p className="truncate text-[10px] text-slate-400">{it.material.length > 22 ? it.material.slice(0, 22) + "\u2026" : it.material}</p>}
+                    </div>
+                    <span className={`flex-shrink-0 text-[11px] font-bold ${it.balance > 0 ? "text-slate-500" : "text-red-400"}`}>
+                      {it.balance.toLocaleString()}EA
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {error && <p className="text-xs font-semibold text-red-500">{error}</p>}
 
@@ -8317,7 +8433,12 @@ function ProductionLogScreen({ employee, onBack }) {
               <label className="text-xs font-semibold text-slate-500">
                 목형위치 {cutMethod && cutMethod.moldLocation && <span className="font-normal" style={{ color: BRAND.deepGreen }}>· 자동</span>}
               </label>
-              <input value={moldLocation} onChange={(e) => setMoldLocation(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+              <input value={moldLocation} onChange={(e) => setMoldLocation(e.target.value)}
+                placeholder={cutMethod && !cutMethod.moldLocation ? "정보 없음" : ""}
+                disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+              {cutMethod && !cutMethod.moldLocation && !moldLocation && (
+                <p className="mt-1 text-[11px] text-slate-400">재단방법에 목형위치가 등록되지 않았습니다 · 정보 없음</p>
+              )}
             </div>
           </>
         )}
@@ -8363,6 +8484,19 @@ function ProductionLogScreen({ employee, onBack }) {
                 <p className="mt-0.5 text-[11px] text-slate-500">
                   재단 {Number(pressCalc.cutQty).toLocaleString()}EA × 캐비티 {pressCalc.cavity} = {pressCalc.target.toLocaleString()}EA
                 </p>
+              </div>
+            )}
+
+            {/* 목형위치 — 프레스 작업자가 목형을 어디서 가져올지 바로 알 수 있게 */}
+            {selectedCut && (
+              <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-3">
+                <MapPin className="h-4 w-4 flex-shrink-0 text-slate-400" />
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold text-slate-500">목형위치</p>
+                  <p className={`mt-0.5 text-sm font-bold ${selectedCut.moldLocation ? "text-slate-800" : "text-slate-400"}`}>
+                    {selectedCut.moldLocation || "정보 없음"}
+                  </p>
+                </div>
               </div>
             )}
 
