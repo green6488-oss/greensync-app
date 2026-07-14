@@ -1508,7 +1508,8 @@ async function getProductionDashboard(actorEmployeeId, dateStr) {
     totalRows: data.total_rows,
     totalQuantity: data.total_quantity,
     completedRows: data.completed_rows,
-    progressPct: data.progress_pct,
+    shippedQuantity: data.shipped_quantity,
+    shipmentPct: data.shipment_pct,
     latestCreatedAt: data.latest_created_at,
     byPart: (data.by_part || []).map((r) => ({ partNo: r.part_no, quantity: r.quantity })),
     byStatus: (data.by_status || []).map((r) => ({ status: r.status, count: r.count })),
@@ -7801,8 +7802,9 @@ function ProductionDashboardScreen({ employee, onBack }) {
               <p className="mt-1 text-lg font-extrabold text-slate-700">{data.totalRows}건</p>
             </div>
             <div className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
-              <p className="text-[11px] text-slate-400">완료 진행률</p>
-              <p className="mt-1 text-lg font-extrabold text-slate-700">{data.progressPct}%</p>
+              <p className="text-[11px] text-slate-400">출고율</p>
+              <p className="mt-1 text-lg font-extrabold text-slate-700">{data.shipmentPct}%</p>
+              <p className="mt-0.5 text-[10px] text-slate-400">{Number(data.shippedQuantity || 0).toLocaleString()} 출고</p>
             </div>
           </div>
 
