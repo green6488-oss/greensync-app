@@ -547,6 +547,38 @@ async function createTransaction(actorEmployeeId, body) {
 }
 
 /**
+ * 창원 입출고 내역 수정 — "updateTransaction" 액션. 구분/수량(및 PART NO)을 고치면
+ * 서버가 그 PART NO의 누적 재고를 다시 계산한다. 당일 등록분은 현장 직원 누구나,
+ * 지난 날짜분은 관리자만 가능(서버에서 권한 검사).
+ */
+async function updateTransaction(actorEmployeeId, id, body) {
+  const data = await callGasWebApp({
+    action: "updateTransaction",
+    actor_employee_id: actorEmployeeId,
+    id,
+    part_no: body.partNo,
+    type: body.type,
+    quantity: body.quantity,
+    field_worker_name: body.fieldWorkerName,
+  });
+  return { id: data.id, partNo: data.part_no, type: data.type, quantity: data.quantity };
+}
+
+/**
+ * 창원 입출고 내역 삭제 — "deleteTransaction" 액션. 행을 완전히 지우고 그 PART NO의
+ * 누적 재고를 재정산한다. 권한 규칙은 수정과 동일.
+ */
+async function deleteTransaction(actorEmployeeId, id, fieldWorkerName) {
+  const data = await callGasWebApp({
+    action: "deleteTransaction",
+    actor_employee_id: actorEmployeeId,
+    id,
+    field_worker_name: fieldWorkerName,
+  });
+  return { id: data.id, partNo: data.part_no };
+}
+
+/**
  * 근무지 전환 — GAS 백엔드의 "switchSite" 액션을 호출해 "지원"/"관리자"
  * 권한인지 서버에서 다시 확인한다. 실제 직원명부의 소속(B열)은 바뀌지 않고,
  * 화면에서 "오늘 어느 사이트로 볼지"만 바뀐다(브라우저를 새로고침하면
@@ -2529,6 +2561,65 @@ function TransactionRegisterScreen({ employee, onBack }) {
   const [submitProgress, setSubmitProgress] = useState(null); // { done, total }
   const [lastSummary, setLastSummary] = useState(null); // 제출 완료 후 결과 요약
 
+  // 오늘 등록 내역(수정/삭제용) — 오기입을 그 자리에서 바로잡기 위한 목록.
+  const [recentTx, setRecentTx] = useState([]);
+  const [recentStatus, setRecentStatus] = useState("loading"); // loading | ready | error
+  const [editTarget, setEditTarget] = useState(null);   // 수정 대상 내역
+  const [deleteTarget, setDeleteTarget] = useState(null); // 삭제 확인 대상 내역
+  const [rowBusy, setRowBusy] = useState(false);        // 수정/삭제 통신 중
+  const [rowError, setRowError] = useState("");
+
+  const todayStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
+
+  const loadRecent = async () => {
+    setRecentStatus("loading");
+    try {
+      const list = await listTransactions({ date: todayStr });
+      setRecentTx(list.slice().reverse()); // 최근 등록이 위로
+      setRecentStatus("ready");
+    } catch (err) {
+      setRecentStatus("error");
+    }
+  };
+  useEffect(() => { loadRecent(); }, []);
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setRowBusy(true);
+    setRowError("");
+    try {
+      await deleteTransaction(employee.employeeId, deleteTarget.id, employee.name);
+      setDeleteTarget(null);
+      await loadRecent();
+    } catch (err) {
+      setRowError(err.message || "삭제 중 오류가 발생했습니다.");
+    } finally {
+      setRowBusy(false);
+    }
+  };
+
+  const handleSaveEdit = async (form) => {
+    setRowBusy(true);
+    setRowError("");
+    try {
+      await updateTransaction(employee.employeeId, editTarget.id, {
+        partNo: form.partNo,
+        type: form.type,
+        quantity: form.quantity,
+        fieldWorkerName: employee.name,
+      });
+      setEditTarget(null);
+      await loadRecent();
+    } catch (err) {
+      setRowError(err.message || "수정 중 오류가 발생했습니다.");
+    } finally {
+      setRowBusy(false);
+    }
+  };
+
   const resetLineInputs = () => {
     setPartNo("");
     setQuantity("");
@@ -2609,6 +2700,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
       });
       setLastSummary({ succeeded: [{ line: { cartId: "single", partNo: partNo.trim(), quantity: qty }, result }], failed: [] });
       resetLineInputs();
+      loadRecent();
     } catch (err) {
       setLineError(err.message || "처리 중 오류가 발생했습니다.");
     } finally {
@@ -2664,6 +2756,7 @@ function TransactionRegisterScreen({ employee, onBack }) {
     setLastSummary({ succeeded, failed });
     setSubmitting(false);
     setSubmitProgress(null);
+    loadRecent();
   };
 
   const totalQuantity = cart.reduce((sum, line) => sum + line.quantity, 0);
@@ -2934,8 +3027,125 @@ function TransactionRegisterScreen({ employee, onBack }) {
         </div>
       )}
 
+      {/* 오늘 등록 내역 — 오기입을 그 자리에서 수정·삭제 */}
+      <div className="mt-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-slate-700">오늘 등록 내역</h2>
+          <button type="button" onClick={loadRecent} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-all active:scale-95">
+            <RefreshCw className="h-3 w-3" /> 새로고침
+          </button>
+        </div>
+        <p className="mt-1 text-[11px] text-slate-400">잘못 등록했으면 그 자리에서 수정·삭제할 수 있어요. (당일 등록분)</p>
+
+        {recentStatus === "loading" && <p className="mt-3 text-xs text-slate-400">불러오는 중…</p>}
+        {recentStatus === "error" && <p className="mt-3 text-xs text-red-500">내역을 불러오지 못했습니다. 새로고침을 눌러주세요.</p>}
+        {recentStatus === "ready" && recentTx.length === 0 && (
+          <p className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 py-6 text-center text-xs text-slate-400">오늘 등록한 입출고 내역이 없습니다.</p>
+        )}
+        {recentStatus === "ready" && recentTx.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {recentTx.map((tx) => {
+              const isIn = String(tx.type).indexOf("입고") !== -1;
+              const qty = Number(tx.inQty) || Number(tx.outQty) || 0;
+              return (
+                <div key={tx.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${isIn ? "bg-emerald-50 text-emerald-600" : "bg-orange-50 text-orange-600"}`}>{tx.type}</span>
+                        <span className="truncate text-[13px] font-bold text-slate-800">{tx.name || tx.partNo}</span>
+                      </div>
+                      <p className="mt-0.5 truncate text-[11px] text-slate-400">{tx.partNo} · {qty}개 · 재고 {tx.stock}</p>
+                    </div>
+                    <div className="flex flex-shrink-0 items-center gap-1.5">
+                      <button type="button" onClick={() => { setRowError(""); setEditTarget(tx); }} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 transition-all active:scale-95">
+                        <PenLine className="h-3 w-3" /> 수정
+                      </button>
+                      <button type="button" onClick={() => { setRowError(""); setDeleteTarget(tx); }} className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-500 transition-all active:scale-95">
+                        <Trash2 className="h-3 w-3" /> 삭제
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 삭제 확인 팝업 */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-6" onClick={() => { if (!rowBusy) setDeleteTarget(null); }}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
+            <p className="text-base font-bold text-slate-900">이 내역을 삭제할까요?</p>
+            <p className="mt-2 text-sm text-slate-500">
+              {deleteTarget.name || deleteTarget.partNo} · {deleteTarget.type} {Number(deleteTarget.inQty) || Number(deleteTarget.outQty) || 0}개
+            </p>
+            <p className="mt-1 text-[11px] text-slate-400">삭제하면 이 PART NO의 재고가 자동으로 다시 계산됩니다.</p>
+            {rowError && <p className="mt-2 text-xs text-red-500">{rowError}</p>}
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button type="button" disabled={rowBusy} onClick={() => setDeleteTarget(null)} className="rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-500 disabled:opacity-50">취소</button>
+              <button type="button" disabled={rowBusy} onClick={handleConfirmDelete} className="rounded-xl py-2.5 text-sm font-bold text-white disabled:opacity-50" style={{ backgroundColor: "#dc2626" }}>{rowBusy ? "삭제 중…" : "삭제"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 수정 모달 */}
+      {editTarget && (
+        <TransactionEditModal tx={editTarget} busy={rowBusy} error={rowError} onSave={handleSaveEdit} onClose={() => { if (!rowBusy) setEditTarget(null); }} />
+      )}
+
       {scannerOpen && <BarcodeScannerModal onScan={handleScanResult} onClose={() => setScannerOpen(false)} />}
     </main>
+  );
+}
+
+/** 입출고 내역 수정 모달 — 구분(입고/출고)·수량·PART NO를 고친다. 저장하면 서버가 재고를 재정산한다. */
+function TransactionEditModal({ tx, busy, error, onSave, onClose }) {
+  const initialQty = Number(tx.inQty) || Number(tx.outQty) || "";
+  const [type, setType] = useState(String(tx.type).indexOf("출고") !== -1 ? "출고" : "입고");
+  const [partNo, setPartNo] = useState(tx.partNo || "");
+  const [quantity, setQuantity] = useState(String(initialQty));
+  const [localError, setLocalError] = useState("");
+
+  const submit = () => {
+    const qty = Number(quantity);
+    if (!partNo.trim()) { setLocalError("PART NO를 입력해주세요."); return; }
+    if (!qty || qty <= 0) { setLocalError("수량은 1 이상의 숫자여야 합니다."); return; }
+    setLocalError("");
+    onSave({ partNo: partNo.trim(), type, quantity: qty });
+  };
+
+  const inputCls = "mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-slate-400";
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-6" onClick={() => { if (!busy) onClose(); }}>
+      <div className="w-full max-w-sm rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
+        <p className="text-base font-bold text-slate-900">입출고 내역 수정</p>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          {["입고", "출고"].map((t) => (
+            <button key={t} type="button" onClick={() => setType(t)} disabled={busy}
+              className={`rounded-xl py-2.5 text-sm font-bold disabled:opacity-50 ${type === t ? "text-white" : "border border-slate-200 text-slate-500"}`}
+              style={type === t ? { backgroundColor: BRAND.deepGreen } : {}}>{t}</button>
+          ))}
+        </div>
+        <div className="mt-3">
+          <label className="text-xs font-semibold text-slate-500">PART NO</label>
+          <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} disabled={busy} className={inputCls} />
+        </div>
+        <div className="mt-3">
+          <label className="text-xs font-semibold text-slate-500">수량</label>
+          <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={busy} className={inputCls} />
+        </div>
+        <p className="mt-2 text-[11px] text-slate-400">저장하면 이 PART NO의 재고가 자동으로 다시 계산됩니다.</p>
+        {(localError || error) && <p className="mt-2 text-xs text-red-500">{localError || error}</p>}
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button type="button" disabled={busy} onClick={onClose} className="rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-500 disabled:opacity-50">취소</button>
+          <button type="button" disabled={busy} onClick={submit} className="rounded-xl py-2.5 text-sm font-bold text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>{busy ? "저장 중…" : "저장"}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
