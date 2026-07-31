@@ -1542,6 +1542,10 @@ async function getProductionDashboard(actorEmployeeId, dateStr) {
     completedRows: data.completed_rows,
     shippedQuantity: data.shipped_quantity,
     shipmentPct: data.shipment_pct,
+    monthPrefix: data.month_prefix,
+    monthProducedQuantity: data.month_produced_quantity,
+    monthShippedQuantity: data.month_shipped_quantity,
+    monthShipmentPct: data.month_shipment_pct,
     latestCreatedAt: data.latest_created_at,
     byPart: (data.by_part || []).map((r) => ({ partNo: r.part_no, quantity: r.quantity })),
     byStatus: (data.by_status || []).map((r) => ({ status: r.status, count: r.count })),
@@ -8012,9 +8016,9 @@ function ProductionDashboardScreen({ employee, onBack }) {
               <p className="mt-1 text-lg font-extrabold text-slate-700">{data.totalRows}건</p>
             </div>
             <div className="rounded-[16px] bg-white p-3 shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)]">
-              <p className="text-[11px] text-slate-400">출고율</p>
-              <p className="mt-1 text-lg font-extrabold text-slate-700">{data.shipmentPct}%</p>
-              <p className="mt-0.5 text-[10px] text-slate-400">{Number(data.shippedQuantity || 0).toLocaleString()} 출고</p>
+              <p className="text-[11px] text-slate-400">이번 달 출고율</p>
+              <p className="mt-1 text-lg font-extrabold text-slate-700">{data.monthShipmentPct != null ? data.monthShipmentPct : data.shipmentPct}%</p>
+              <p className="mt-0.5 text-[10px] text-slate-400">{Number(data.monthShippedQuantity || 0).toLocaleString()} 출고 / {Number(data.monthProducedQuantity || 0).toLocaleString()} 생산</p>
             </div>
           </div>
 
@@ -8917,6 +8921,9 @@ function AdhesiveLotPicker({ lots, value, onChange, disabled, inputCls, required
   const [showList, setShowList] = useState(false);
   const selected = lots.find((l) => l.adhesiveLot === value);
   const filteredOut = requiredSpec && allCount != null && allCount > lots.length;
+  // 다 쓴 롤(잔량 0롤 이하)은 목록에서 숨긴다. 잔량을 알 수 없는(재고 미상) 롤은 남긴다.
+  const visibleLots = lots.filter((l) => l.stock == null || Number(l.stock) > 0);
+  const consumedHidden = lots.length - visibleLots.length;
   return (
     <div>
       <label className="text-xs font-semibold text-slate-500">
@@ -8936,23 +8943,29 @@ function AdhesiveLotPicker({ lots, value, onChange, disabled, inputCls, required
       {filteredOut && (
         <p className="mt-1.5 text-[11px] text-slate-400">재질이 다른 롤 {allCount - lots.length}개는 목록에서 숨겨졌어요</p>
       )}
+      {consumedHidden > 0 && (
+        <p className="mt-1.5 text-[11px] text-slate-400">다 쓴 롤(잔량 0) {consumedHidden}개는 목록에서 숨겨졌어요</p>
+      )}
       {showList && (
         <div className="mt-2 max-h-64 space-y-1.5 overflow-y-auto rounded-xl bg-slate-50 p-2">
-          {lots.length === 0 && (
+          {visibleLots.length === 0 && (
             <p className="py-3 text-center text-[11px] text-slate-400">
-              {requiredSpec ? `${requiredSpec.fabric} ${requiredSpec.thickness}T 롤이 없습니다` : "A동에서 생산된 점착LOT가 없습니다."}
+              {requiredSpec ? `${requiredSpec.fabric} ${requiredSpec.thickness}T 롤이 없습니다` : "A동에서 생산된(잔량 남은) 점착LOT가 없습니다."}
             </p>
           )}
-          {lots.map((l) => (
-            <button key={l.adhesiveLot} type="button" onClick={() => { onChange(l.adhesiveLot); setShowList(false); }}
-              className="flex w-full items-center justify-between gap-2 rounded-lg bg-white px-3 py-2.5 text-left shadow-sm transition-all active:scale-[0.98]">
-              <div className="min-w-0">
-                <p className="text-[13px] font-bold text-slate-800">{l.adhesiveLot}</p>
-                {l.createdLabel && <p className="mt-0.5 text-[10px] text-slate-400">{l.createdLabel}</p>}
-              </div>
-              {l.stock != null && <span className="flex-shrink-0 text-[10px] font-semibold text-slate-400">잔량 {Number(l.stock).toLocaleString()}롤</span>}
-            </button>
-          ))}
+          {visibleLots.map((l) => {
+            const stk = l.stock != null ? Number(l.stock) : null;
+            return (
+              <button key={l.adhesiveLot} type="button" onClick={() => { onChange(l.adhesiveLot); setShowList(false); }}
+                className="flex w-full items-center justify-between gap-2 rounded-lg bg-white px-3 py-2.5 text-left shadow-sm transition-all active:scale-[0.98]">
+                <div className="min-w-0">
+                  <p className="text-[13px] font-bold text-slate-800">{l.adhesiveLot}</p>
+                  {l.createdLabel && <p className="mt-0.5 text-[10px] text-slate-400">{l.createdLabel}</p>}
+                </div>
+                {stk != null && <span className="flex-shrink-0 text-[10px] font-semibold text-emerald-600">잔량 {stk.toLocaleString()}롤</span>}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
