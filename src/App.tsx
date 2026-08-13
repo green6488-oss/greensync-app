@@ -290,7 +290,7 @@ const FLOOR_OPTIONS = ["1층", "연구동", "3층", "4층"];
 // ⚠️ 재배포하면 URL이 바뀔 수 있으니, 재배포할 때마다 아래 값을 교체해야 한다.
 // ────────────────────────────────────────────────────────────────────────
 const GAS_WEB_APP_URL =
-  "https://script.google.com/macros/s/AKfycbxhq25zDbvNNAC-IwlavewL3Aijaila1rElMD5D6XOH-8h4fzDmtJ6Usob4yZEgeB6Bkw/exec";
+  "https://script.google.com/macros/s/AKfycbzEVEM4oGsckoAxEIdyDO-xYeAZMsjrQf9n5cI24UhM3DF2jtRrKBrZAr_qDzAuIYK_9g/exec";
 
 async function callGasWebApp(payload) {
   let response;
