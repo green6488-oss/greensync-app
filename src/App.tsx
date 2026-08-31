@@ -981,30 +981,64 @@ async function listAdhesiveLots(actorEmployeeId) {
  * 예) PE 5T → 200,000mm(200m), PE 7T → 100,000mm(100m)
  */
 const ROLL_LENGTH_MM = {
+  // ── PE ──
   PE2: 200000, PE3: 200000, PE5: 200000, PE6: 150000,
-  PE7: 100000, PE8: 100000, PE10: 100000,
-  PE11: 50000, PE12: 50000, PE13: 50000, PE15: 50000,
-  "PU3.5": 200000, "PU5.5": 200000,
+  PE7: 100000 /* 봉림 기준 · 신우는 업체별 예외표에서 120m */, PE8: 100000, PE10: 100000,
+  PE11: 50000, PE12: 50000, PE13: 50000, PE15: 50000, PE20: 50000,
+  // ── PU 기본 ──
+  "PU3.5": 200000, "PU5.5": 100000,
   PU7: 100000, PU8: 100000, PU10: 100000,
-  PU13: 50000, PU15: 50000, PU20: 50000,
+  PU13: 50000, PU15: 100000, PU20: 50000,
   PU25: 25000, PU30: 25000,
+  // ── PU 화이트(W)/고밀도 — 같은 두께라도 롤 길이가 다르다 ──
+  "PU(W)5": 150000, "PU(W)8": 100000,
+  "PU고밀도8": 50000, "PU고밀도10": 100000,
+  // ── 합지(PE+PU) ──
   "3+3": 110000, "5+5": 110000, "5+10": 70000, "10+5": 70000,
-  "EOPN 7T": 100000, "EOPN 10T": 100000,
+  "PE+PU3+3": 110000, "PE+PU5+5": 110000, "PE+PU5+10": 70000, "PE+PU10+5": 70000,
+  // ── 오픈셀 / NBR / 무가교 / 그라스울 ──
+  "오픈셀7": 100000, OPENCELL7: 100000, "EOPN 7T": 100000, "EOPN 10T": 100000,
+  NBR13: 20000, NBR10: 30000,
+  "무가교2": 150000, "무가교6": 100000,
+  "그라스울1": 100000,
+};
+// 업체별 예외 — 같은 규격이라도 납품 업체에 따라 1롤 길이가 다른 경우(현재 PE 7T뿐).
+const ROLL_LENGTH_VENDOR_MM = {
+  PE7: { "신우": 120000, "봉림": 100000 },
 };
 /** 재단 시 롤 앞뒤 손실 길이(mm) — 현장 기준 2m 고정. */
 const CUT_LOSS_MM = 2000;
 /** 금형(프레스로 찍는 품목) 재단 시 양옆 여유분(mm). 재단(=재단)은 정치수라 더하지 않는다. */
 const MOLD_MARGIN_MM = 50;
 
-/** 원단 종류 + 두께로 1롤 길이(mm)를 찾는다. 예: ("PE", "5") → 200000. 없으면 null. */
-function lookupRollLengthMm(fabricType, thickness) {
-  const fab = String(fabricType || "").replace(/\([^)]*\)/g, "").trim().toUpperCase().replace(/\s+/g, "");
+/**
+ * 원단 종류 + 두께(+업체)로 1롤 길이(mm)를 찾는다. 예: ("PE","5") → 200000.
+ * 변형 표기(PU(W), PU 고밀도)를 먼저 찾고 없으면 기본 원단으로 폴백.
+ * 업체별 예외(PE 7T: 봉림 100m/신우 120m)는 업체명이 있으면 우선 적용. 없으면 null.
+ */
+function lookupRollLengthMm(fabricType, thickness, vendor) {
+  const rawFab = String(fabricType || "").trim().toUpperCase().replace(/\s+/g, ""); // "PU 고밀도"→"PU고밀도"
+  const baseFab = rawFab.replace(/\([^)]*\)/g, "");                                  // "PU(W)"→"PU"
   const thk = String(thickness || "").trim();
-  if (!fab || !thk) return null;
+  if (!rawFab || !thk) return null;
   const thkNum = Number(thk);
   const thkKey = isNaN(thkNum) ? thk : String(thkNum);
-  if (ROLL_LENGTH_MM[fab + thkKey] != null) return ROLL_LENGTH_MM[fab + thkKey];
-  if (ROLL_LENGTH_MM[fab + " " + thkKey + "T"] != null) return ROLL_LENGTH_MM[fab + " " + thkKey + "T"];
+
+  const candidates = [rawFab + thkKey, baseFab + thkKey];
+  if (thkKey.indexOf("+") !== -1) candidates.push(thkKey);
+  candidates.push(baseFab + " " + thkKey + "T");
+
+  const v = String(vendor || "").trim();
+  for (const key of candidates) {
+    if (ROLL_LENGTH_MM[key] == null) continue;
+    const vmap = ROLL_LENGTH_VENDOR_MM[key];
+    if (vmap && v) {
+      for (const name of Object.keys(vmap)) {
+        if (v.indexOf(name) !== -1) return vmap[name];
+      }
+    }
+    return ROLL_LENGTH_MM[key];
+  }
   return null;
 }
 
@@ -1155,7 +1189,11 @@ async function createInitialInventory(actorEmployeeId, payload) {
       quantity: it.quantity,
       unit_price: it.unitPrice,
       location: it.location,
-      vendor: it.vendor, // 원단이면 업체명 — 업체별 재고 추적
+      vendor: it.vendor, // 원단/반제품이면 업체명 — 업체별 재고 추적
+      // 반제품(점착완제품) 전용 — 품명(원단종류+두께)·규격으로 서버가 LOT를 만든다
+      fabric_type: it.fabricType,
+      thickness: it.thickness,
+      separator_size: it.separatorSize,
       note: it.note,
     })),
   });
@@ -8228,9 +8266,9 @@ function ProductionLogScreen({ employee, onBack }) {
   const STORE_LOCATIONS = ["C동 1층", "C동 2층", "B동 1층", "사무동 1층"];
   // 원단 종류(=품명) — 현장 생산일보 기준 전체 목록.
   const FABRIC_TYPES = [
-    "PE", "PU", "PU+G/W", "PE+PU", "EPDM", "OPEN CELL", "아티론", "무가교", "SEAL",
+    "PE", "PU", "PU 고밀도", "PU+G/W", "PE+PU", "EPDM", "OPEN CELL", "아티론", "무가교", "SEAL",
     "PU(G)", "PU(W)", "FELT(N)", "FELT(PE)", "NBR", "NBR튜브", "G/L", "PU(B)",
-    "양면", "PVC", "전자선", "기타",
+    "양면", "PVC", "전자선", "그라스울", "기타",
   ];
   // 비고(구분) — 난연/비난연/난가교. 빈칸으로 두는 경우도 많아 "없음"을 기본값으로 둔다.
   const FLAME_TYPES = ["", "난연", "비난연", "난가교"];
@@ -8261,7 +8299,8 @@ function ProductionLogScreen({ employee, onBack }) {
 
   // A동 1롤 길이 자동 산출 — 원단·두께가 정해지면 고정표에서 롤 길이(m)를 찾아 수량에 채운다.
   // (PE 5T = 200m, PE 7T = 100m 등 현장 표준값). 표에 없으면 직접 입력.
-  const autoRollLengthMm = facType === "adhesive" ? lookupRollLengthMm(effectiveFabricType, thickness) : null;
+  // 업체별 예외(PE 7T: 봉림 100m/신우 120m)를 반영 — 업체를 고르면 그 업체 기준으로 다시 채워진다.
+  const autoRollLengthMm = facType === "adhesive" ? lookupRollLengthMm(effectiveFabricType, thickness, fabricVendor) : null;
   useEffect(() => {
     if (facType !== "adhesive") return;
     if (autoRollLengthMm) setQuantity(String(autoRollLengthMm / 1000)); // mm → m
@@ -9432,9 +9471,15 @@ function InitialInventoryScreen({ employee, onBack }) {
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-  const [kind, setKind] = useState("원자재"); // 원자재 | 완제품
+  const [kind, setKind] = useState("원자재"); // 원자재 | 반제품 | 완제품
   const [date, setDate] = useState(todayStr);
-  const emptyItem = () => ({ partNo: "", quantity: "", unitPrice: "", location: "", vendor: "", note: "" });
+  const emptyItem = () => ({ partNo: "", quantity: "", unitPrice: "", location: "", vendor: "", fabricType: "PE", thickness: "", separatorSize: "대", note: "" });
+  // 반제품(점착 후 재단 전, A동 보관 롤) 등록용 원단 종류 목록 — 생산일보 A동과 동일.
+  const SEMI_FABRIC_TYPES = [
+    "PE", "PU", "PU 고밀도", "PU+G/W", "PE+PU", "EPDM", "OPEN CELL", "아티론", "무가교", "SEAL",
+    "PU(G)", "PU(W)", "FELT(N)", "FELT(PE)", "NBR", "NBR튜브", "G/L", "PU(B)",
+    "양면", "PVC", "전자선", "그라스울",
+  ];
   const [items, setItems] = useState([emptyItem()]);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -9446,8 +9491,13 @@ function InitialInventoryScreen({ employee, onBack }) {
   const removeItem = (idx) => setItems((prev) => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev);
 
   const handleSave = async () => {
-    const filled = items.filter((it) => it.partNo.trim());
-    if (filled.length === 0) { setFormError("PART NO가 있는 항목을 최소 1개 입력해주세요."); return; }
+    const filled = items.filter((it) => (kind === "반제품" ? it.fabricType : it.partNo.trim()));
+    if (filled.length === 0) { setFormError(kind === "반제품" ? "원단 종류가 있는 항목을 최소 1개 입력해주세요." : "PART NO가 있는 항목을 최소 1개 입력해주세요."); return; }
+    if (kind === "반제품") {
+      for (const it of filled) {
+        if (!String(it.thickness).trim() || !it.quantity) { setFormError("반제품은 두께(T)와 수량(롤)을 입력해주세요."); return; }
+      }
+    }
     setFormError("");
     setSubmitting(true);
     try {
@@ -9474,7 +9524,7 @@ function InitialInventoryScreen({ employee, onBack }) {
         <div>
           <label className="text-xs font-semibold text-slate-500">재고구분 *</label>
           <div className="mt-1.5 flex gap-1 rounded-2xl bg-slate-100 p-1">
-            {["원자재", "완제품"].map((k) => (
+            {["원자재", "반제품", "완제품"].map((k) => (
               <button key={k} onClick={() => { setKind(k); if (k === "완제품") setItems((prev) => prev.map((it) => ({ ...it, unitPrice: "" }))); }} disabled={submitting}
                 className={`flex-1 rounded-xl py-2.5 text-sm font-bold transition-all ${kind === k ? "text-white shadow-sm" : "text-slate-400"}`}
                 style={kind === k ? { backgroundColor: BRAND.deepGreen } : {}}>
@@ -9482,6 +9532,9 @@ function InitialInventoryScreen({ employee, onBack }) {
               </button>
             ))}
           </div>
+          {kind === "반제품" && (
+            <p className="mt-1.5 text-[11px] text-slate-400">점착은 됐지만 재단 전인 보관 롤(A동)입니다. 등록하면 재단 화면 목록에 떠서 재단할 때마다 1롤씩 차감됩니다.</p>
+          )}
         </div>
 
         <div>
@@ -9506,23 +9559,56 @@ function InitialInventoryScreen({ employee, onBack }) {
                     <button onClick={() => removeItem(idx)} disabled={submitting} className="text-[11px] font-semibold text-red-400 disabled:opacity-50">삭제</button>
                   )}
                 </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <input value={it.partNo} onChange={(e) => updateItem(idx, "partNo", e.target.value.toUpperCase())} placeholder="PART NO *" disabled={submitting} className={inputCls} />
-                  <button type="button" onClick={() => setScannerIdx(idx)} disabled={submitting}
-                    className="flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }} title="바코드 스캔">
-                    <ScanLine className="h-5 w-5" />
-                  </button>
-                </div>
-                <div className={`mt-2 grid gap-2 ${kind === "원자재" ? "grid-cols-2" : "grid-cols-1"}`}>
-                  <input value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="수량" disabled={submitting} className={inputCls} />
-                  {kind === "원자재" && (
-                    <input value={it.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="단가" disabled={submitting} className={inputCls} />
-                  )}
-                </div>
-                {kind === "원자재" && (
-                  <input value={it.vendor} onChange={(e) => updateItem(idx, "vendor", e.target.value)} placeholder="업체명 (원단이면 입력: 진양/봉림 등 · 업체별 재고 추적)" disabled={submitting} className={`mt-2 ${inputCls}`} />
+                {kind === "반제품" ? (
+                  <>
+                    {/* 반제품 — 품명(원단종류+두께)·규격·수량(롤)·단가·원단업체 */}
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <select value={it.fabricType} onChange={(e) => updateItem(idx, "fabricType", e.target.value)} disabled={submitting} className={inputCls}>
+                        {SEMI_FABRIC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                      <input value={it.thickness} onChange={(e) => updateItem(idx, "thickness", e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="두께(T) *" disabled={submitting} className={inputCls} />
+                    </div>
+                    <div className="mt-2 flex gap-1 rounded-2xl bg-slate-100 p-1">
+                      {["소", "대", "특대"].map((s) => (
+                        <button key={s} type="button" onClick={() => updateItem(idx, "separatorSize", s)} disabled={submitting}
+                          className={`flex-1 rounded-xl py-2 text-xs font-bold transition-all ${it.separatorSize === s ? "text-white shadow-sm" : "text-slate-400"}`}
+                          style={it.separatorSize === s ? { backgroundColor: BRAND.deepGreen } : {}}>
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <input value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="수량(롤) *" disabled={submitting} className={inputCls} />
+                      <input value={it.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="단가" disabled={submitting} className={inputCls} />
+                    </div>
+                    <input value={it.vendor} onChange={(e) => updateItem(idx, "vendor", e.target.value)} placeholder="원단업체 (진양/봉림 등)" disabled={submitting} className={`mt-2 ${inputCls}`} />
+                    {it.fabricType && String(it.thickness).trim() && (
+                      <p className="mt-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[10px] text-slate-500">
+                        등록될 LOT: <span className="font-bold text-slate-700">{[it.fabricType, String(it.thickness).trim() + "T", it.separatorSize, date.slice(2).replace(/-/g, "")].join(" ")}</span> · A동 보관
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-2 flex items-center gap-2">
+                      <input value={it.partNo} onChange={(e) => updateItem(idx, "partNo", e.target.value.toUpperCase())} placeholder="PART NO *" disabled={submitting} className={inputCls} />
+                      <button type="button" onClick={() => setScannerIdx(idx)} disabled={submitting}
+                        className="flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-lg text-white disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }} title="바코드 스캔">
+                        <ScanLine className="h-5 w-5" />
+                      </button>
+                    </div>
+                    <div className={`mt-2 grid gap-2 ${kind === "원자재" ? "grid-cols-2" : "grid-cols-1"}`}>
+                      <input value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="수량" disabled={submitting} className={inputCls} />
+                      {kind === "원자재" && (
+                        <input value={it.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="단가" disabled={submitting} className={inputCls} />
+                      )}
+                    </div>
+                    {kind === "원자재" && (
+                      <input value={it.vendor} onChange={(e) => updateItem(idx, "vendor", e.target.value)} placeholder="업체명 (원단이면 입력: 진양/봉림 등 · 업체별 재고 추적)" disabled={submitting} className={`mt-2 ${inputCls}`} />
+                    )}
+                    <input value={it.location} onChange={(e) => updateItem(idx, "location", e.target.value)} placeholder="보관위치 (예: A동 2층)" disabled={submitting} className={`mt-2 ${inputCls}`} />
+                  </>
                 )}
-                <input value={it.location} onChange={(e) => updateItem(idx, "location", e.target.value)} placeholder="보관위치 (예: A동 2층)" disabled={submitting} className={`mt-2 ${inputCls}`} />
               </div>
             ))}
           </div>
@@ -9561,9 +9647,9 @@ function FabricIntakeScreen({ employee, onBack }) {
 
   // 원단 종류 목록 — 생산일보 A동과 같은 현장 기준 목록.
   const FABRIC_TYPES_IN = [
-    "PE", "PU", "PU+G/W", "PE+PU", "EPDM", "OPEN CELL", "아티론", "무가교", "SEAL",
+    "PE", "PU", "PU 고밀도", "PU+G/W", "PE+PU", "EPDM", "OPEN CELL", "아티론", "무가교", "SEAL",
     "PU(G)", "PU(W)", "FELT(N)", "FELT(PE)", "NBR", "NBR튜브", "G/L", "PU(B)",
-    "양면", "PVC", "전자선", "기타",
+    "양면", "PVC", "전자선", "그라스울", "기타",
   ];
 
   const [date, setDate] = useState(todayStr);
@@ -9584,6 +9670,10 @@ function FabricIntakeScreen({ employee, onBack }) {
 
   const effType = fabricType === "기타" ? fabricTypeCustom.trim() : fabricType;
   const previewPartNo = [effType, thickness.trim() ? thickness.trim() + "T" : ""].filter(Boolean).join(" ");
+  // 1롤 길이(고정표·업체별 예외 반영) → m 입력 시 몇 롤인지 자동 환산해서 보여준다.
+  const rollLenMm = lookupRollLengthMm(effType, thickness.trim(), vendor);
+  const rollCount = rollLenMm && Number(quantity) > 0 ? (Number(quantity) * 1000) / rollLenMm : null;
+  const fmtRolls = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
   const loadStocks = async () => {
     setStockStatus("loading");
@@ -9661,6 +9751,14 @@ function FabricIntakeScreen({ employee, onBack }) {
           <div>
             <label className="text-xs font-semibold text-slate-500">수량(m) *</label>
             <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="예: 200" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+            {rollLenMm && (
+              <p className="mt-1 text-[11px] font-semibold" style={{ color: BRAND.deepGreen }}>
+                {rollCount != null ? `≈ ${fmtRolls(rollCount)}롤` : ""} <span className="font-normal text-slate-400">(1롤 = {(rollLenMm / 1000).toLocaleString()}m{vendor.trim() ? ` · ${vendor.trim()} 기준` : ""})</span>
+              </p>
+            )}
+            {!rollLenMm && effType && thickness.trim() && (
+              <p className="mt-1 text-[11px] text-slate-400">이 규격은 고정표에 없어 롤 환산 없이 m로만 기록됩니다</p>
+            )}
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">단가 <span className="font-normal text-slate-400">(선택)</span></label>
@@ -9701,17 +9799,26 @@ function FabricIntakeScreen({ employee, onBack }) {
         )}
         {stockStatus === "ready" && stocks.length > 0 && (
           <div className="mt-3 space-y-1.5">
-            {stocks.map((s) => (
-              <div key={`${s.partNo}|${s.vendor}`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="truncate text-[13px] font-bold text-slate-800">{s.partNo}</p>
-                  <p className="text-[11px] text-slate-400">{s.vendor || "업체미상"}{s.lastDate ? ` · 최근 ${s.lastDate}` : ""}</p>
+            {stocks.map((s) => {
+              // 품명("PE 3T")에서 원단·두께를 뽑아 그 업체 기준 1롤 길이로 롤 환산.
+              const spec = parseMaterialSpec(s.partNo);
+              const len = spec ? lookupRollLengthMm(spec.fabric, spec.thickness, s.vendor) : null;
+              const rolls = len && Number(s.stock) > 0 ? (Number(s.stock) * 1000) / len : null;
+              return (
+                <div key={`${s.partNo}|${s.vendor}`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-bold text-slate-800">{s.partNo}</p>
+                    <p className="text-[11px] text-slate-400">{s.vendor || "업체미상"}{s.lastDate ? ` · 최근 ${s.lastDate}` : ""}</p>
+                  </div>
+                  <div className="flex-shrink-0 text-right">
+                    <p className={`text-sm font-extrabold ${Number(s.stock) < 0 ? "text-red-500" : Number(s.stock) === 0 ? "text-slate-400" : "text-slate-700"}`}>
+                      {Number(s.stock).toLocaleString()}m
+                    </p>
+                    {rolls != null && <p className="text-[10px] text-slate-400">≈ {fmtRolls(rolls)}롤</p>}
+                  </div>
                 </div>
-                <span className={`flex-shrink-0 text-sm font-extrabold ${Number(s.stock) < 0 ? "text-red-500" : Number(s.stock) === 0 ? "text-slate-400" : "text-slate-700"}`}>
-                  {Number(s.stock).toLocaleString()}m
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
