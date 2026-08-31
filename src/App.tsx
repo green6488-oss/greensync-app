@@ -1155,10 +1155,37 @@ async function createInitialInventory(actorEmployeeId, payload) {
       quantity: it.quantity,
       unit_price: it.unitPrice,
       location: it.location,
+      vendor: it.vendor, // 원단이면 업체명 — 업체별 재고 추적
       note: it.note,
     })),
   });
   return { itemCount: data.item_count };
+}
+
+/**
+ * 원단 입고 등록 — "registerFabricIntake" 액션. 품명은 서버가 "원단종류 + 두께T"로
+ * 조합해(A동 차감과 같은 규칙) 원자재 입고(+)로 기록하고, 업체명을 함께 저장한다.
+ */
+async function registerFabricIntake(actorEmployeeId, payload) {
+  const data = await callGasWebApp({
+    action: "registerFabricIntake",
+    actor_employee_id: actorEmployeeId,
+    date: payload.date,
+    fabric_type: payload.fabricType,
+    thickness: payload.thickness,
+    vendor: payload.vendor,
+    quantity: payload.quantity,
+    unit_price: payload.unitPrice,
+    location: payload.location,
+    note: payload.note,
+  });
+  return { partNo: data.part_no, vendor: data.vendor, quantity: data.quantity };
+}
+
+/** 업체별 원단(원자재) 재고 — "listFabricVendorStock" 액션. partNo를 주면 그 품명만. */
+async function listFabricVendorStock(partNo) {
+  const data = await callGasWebApp({ action: "listFabricVendorStock", part_no: partNo });
+  return (data.items || []).map((r) => ({ partNo: r.part_no, vendor: r.vendor, stock: r.stock, lastDate: r.last_date }));
 }
 
 /** 김해 재고 현황 조회(전 직원) — 원장 합산. kind: "원자재" | "완제품". */
@@ -8171,7 +8198,7 @@ function ProductionLogScreen({ employee, onBack }) {
 
   // A동(점착) 입력
   const [fabricVendor, setFabricVendor] = useState("");
-  const [fabricLot, setFabricLot] = useState("");
+  const [fabricVendorStocks, setFabricVendorStocks] = useState([]); // 이 품명의 업체별 원단 잔량
   const [fabricType, setFabricType] = useState("PU");
   const [fabricTypeCustom, setFabricTypeCustom] = useState(""); // "기타" 선택 시 직접 입력
   const [flameType, setFlameType] = useState(""); // 비고: 난연/비난연/난가교 (빈칸 허용)
@@ -8239,6 +8266,30 @@ function ProductionLogScreen({ employee, onBack }) {
     if (facType !== "adhesive") return;
     if (autoRollLengthMm) setQuantity(String(autoRollLengthMm / 1000)); // mm → m
   }, [autoRollLengthMm, facType]);
+
+  // A동 — 차감될 원자재 품명("원단종류 두께T", 백엔드 차감 규칙과 동일)과
+  // 그 품명의 업체별 원단 잔량. 업체를 고르면 그 업체 재고에서 차감(카운팅)된다.
+  const fabricMaterialPartNo = facType === "adhesive"
+    ? [effectiveFabricType, thickness.trim() ? thickness.trim() + "T" : ""].filter(Boolean).join(" ")
+    : "";
+  useEffect(() => {
+    if (facType !== "adhesive" || !effectiveFabricType || !thickness.trim()) { setFabricVendorStocks([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await listFabricVendorStock(fabricMaterialPartNo);
+        if (!cancelled) setFabricVendorStocks(list);
+      } catch (e) {
+        if (!cancelled) setFabricVendorStocks([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [facType, fabricMaterialPartNo]);
+  // 선택한 업체의 현재 잔량(등록된 업체가 아니면 null)
+  const selectedVendorStock = (() => {
+    const hit = fabricVendorStocks.find((v) => v.vendor === fabricVendor.trim());
+    return hit ? Number(hit.stock) : null;
+  })();
   // A동 점착LOT은 자동 생성하되 작업자가 수정할 수 있다. 수정하지 않았으면(null)
   // 위 자동 조합값을 그대로 쓰고, 한 번이라도 고치면 그 값을 우선한다.
   const effectiveAdhesiveLotA = adhesiveLotOverride != null ? adhesiveLotOverride : autoAdhesiveLot;
@@ -8382,6 +8433,7 @@ function ProductionLogScreen({ employee, onBack }) {
     if (facType === "adhesive") {
       if (fabricType === "기타" && !fabricTypeCustom.trim()) { setFormError("기타 원단종류를 직접 입력해주세요."); return; }
       if (!thickness.trim() || !quantity) { setFormError("두께와 수량(m)을 입력해주세요."); return; }
+      if (!fabricVendor.trim()) { setFormError("원단 업체를 선택하거나 입력해주세요."); return; }
       if (!effectiveAdhesiveLotA.trim()) { setFormError("점착LOT을 입력해주세요."); return; }
     } else if (facType === "cutting") {
       if (!adhesiveLot.trim() || !partNo.trim()) { setFormError("점착LOT·PART NO는 필수입니다."); return; }
@@ -8405,7 +8457,7 @@ function ProductionLogScreen({ employee, onBack }) {
         quantity: submitQty,
         partNo: isForming && selectedCut ? selectedCut.partNo : partNo.trim(),
         fabricType: effectiveFabricType, flameType, thickness: thickness.trim(),
-        fabricVendor: fabricVendor.trim(), fabricLot: fabricLot.trim(),
+        fabricVendor: fabricVendor.trim(), fabricLot: "", // 원단LOT은 관리하지 않기로(업체 단위 추적)
         customer: customer.trim(),
         moldLocation: moldLocation.trim(),
         storeLocation: facType === "cutting" ? "" : storeLocation, // 재단은 보관위치 없음
@@ -8535,16 +8587,6 @@ function ProductionLogScreen({ employee, onBack }) {
         {/* ===== A동 점착기 ===== */}
         {facType === "adhesive" && (
           <>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-500">원단 업체</label>
-                <input value={fabricVendor} onChange={(e) => setFabricVendor(e.target.value)} placeholder="진양/봉림/신우/영보" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500">원단 LOT</label>
-                <input value={fabricLot} onChange={(e) => setFabricLot(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
-              </div>
-            </div>
             <div>
               <label className="text-xs font-semibold text-slate-500">품명(원단 종류)</label>
               <select value={fabricType} onChange={(e) => setFabricType(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`}>
@@ -8602,11 +8644,41 @@ function ProductionLogScreen({ employee, onBack }) {
               </div>
               {adhesiveLotOverride == null && <p className="mt-1 text-[11px] text-slate-400">품명·두께·규격·날짜로 자동 조합됩니다</p>}
             </div>
-            {/* 어떤 원자재가 얼마나 차감되는지 미리 보여준다(두께별 별개 재고). */}
+            {/* 원단 업체 선택 — 이 품명(원단종류+두께)의 업체별 잔량 목록에서 고른다.
+                고른 업체의 원단 재고에서 생산수량(m)만큼 차감(카운팅)된다. */}
+            <div>
+              <label className="text-xs font-semibold text-slate-500">
+                원단 업체 * <span className="font-normal text-slate-400">{fabricMaterialPartNo ? `(${fabricMaterialPartNo} 재고에서 차감)` : "(품명·두께를 먼저 선택)"}</span>
+              </label>
+              {fabricVendorStocks.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {fabricVendorStocks.map((v) => {
+                    const label = v.vendor || "업체미상";
+                    const active = fabricVendor.trim() === v.vendor;
+                    return (
+                      <button key={label} type="button" disabled={submitting}
+                        onClick={() => setFabricVendor(v.vendor)}
+                        className={`rounded-full px-3 py-2 text-xs font-bold transition-all active:scale-95 ${active ? "text-white" : "border border-slate-200 bg-white text-slate-600"}`}
+                        style={active ? { backgroundColor: BRAND.deepGreen } : {}}>
+                        {label} · {Number(v.stock).toLocaleString()}m
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {effectiveFabricType && thickness.trim() && fabricVendorStocks.length === 0 && (
+                <p className="mt-1.5 text-[11px] text-amber-600">이 품명으로 등록된 원단 재고가 없습니다. "원단 입고" 메뉴에서 먼저 등록하면 업체별로 차감·관리됩니다.</p>
+              )}
+              <input value={fabricVendor} onChange={(e) => setFabricVendor(e.target.value)} placeholder="목록에 없으면 직접 입력 (진양/봉림/신우/영보)" disabled={submitting} className={`mt-2 ${inputCls}`} />
+            </div>
+            {/* 어떤 원자재가 얼마나 차감되는지 미리 보여준다(품명+업체별 별개 재고). */}
             {effectiveFabricType && thickness && (
               <p className="rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
-                차감될 원자재: <span className="font-bold">{effectiveFabricType} {thickness}T</span>
+                차감될 원단: <span className="font-bold">{fabricMaterialPartNo}{fabricVendor.trim() ? ` · ${fabricVendor.trim()}` : ""}</span>
                 {quantity ? ` · ${Number(quantity).toLocaleString()}m` : ""}
+                {selectedVendorStock != null && quantity && Number(quantity) > selectedVendorStock && (
+                  <span className="font-bold text-red-500"> — 잔량 부족(현재 {selectedVendorStock.toLocaleString()}m) · 등록은 되지만 재고가 음수가 됩니다</span>
+                )}
               </p>
             )}
             <div>
@@ -9362,7 +9434,7 @@ function InitialInventoryScreen({ employee, onBack }) {
 
   const [kind, setKind] = useState("원자재"); // 원자재 | 완제품
   const [date, setDate] = useState(todayStr);
-  const emptyItem = () => ({ partNo: "", quantity: "", unitPrice: "", location: "", note: "" });
+  const emptyItem = () => ({ partNo: "", quantity: "", unitPrice: "", location: "", vendor: "", note: "" });
   const [items, setItems] = useState([emptyItem()]);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
@@ -9447,6 +9519,9 @@ function InitialInventoryScreen({ employee, onBack }) {
                     <input value={it.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="단가" disabled={submitting} className={inputCls} />
                   )}
                 </div>
+                {kind === "원자재" && (
+                  <input value={it.vendor} onChange={(e) => updateItem(idx, "vendor", e.target.value)} placeholder="업체명 (원단이면 입력: 진양/봉림 등 · 업체별 재고 추적)" disabled={submitting} className={`mt-2 ${inputCls}`} />
+                )}
                 <input value={it.location} onChange={(e) => updateItem(idx, "location", e.target.value)} placeholder="보관위치 (예: A동 2층)" disabled={submitting} className={`mt-2 ${inputCls}`} />
               </div>
             ))}
@@ -9469,6 +9544,177 @@ function InitialInventoryScreen({ employee, onBack }) {
           onClose={() => setScannerIdx(null)}
         />
       )}
+    </main>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+/**
+ * 김해 "원단 입고" 화면(전 직원) — 원단이 업체에서 들어오면 여기서 등록한다.
+ * 품명은 서버가 "원단종류 + 두께T"(예: PE 3T)로 조합해 원자재 입고(+)로 잡고
+ * 업체명을 함께 저장한다 → A동 점착기에서 그 업체를 고르면 생산수량(m)만큼
+ * 같은 재고 키에서 자동 차감(카운팅)된다. 아래에 업체별 현재 잔량을 함께 보여준다.
+ */
+function FabricIntakeScreen({ employee, onBack }) {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+  // 원단 종류 목록 — 생산일보 A동과 같은 현장 기준 목록.
+  const FABRIC_TYPES_IN = [
+    "PE", "PU", "PU+G/W", "PE+PU", "EPDM", "OPEN CELL", "아티론", "무가교", "SEAL",
+    "PU(G)", "PU(W)", "FELT(N)", "FELT(PE)", "NBR", "NBR튜브", "G/L", "PU(B)",
+    "양면", "PVC", "전자선", "기타",
+  ];
+
+  const [date, setDate] = useState(todayStr);
+  const [fabricType, setFabricType] = useState("PE");
+  const [fabricTypeCustom, setFabricTypeCustom] = useState("");
+  const [thickness, setThickness] = useState("");
+  const [vendor, setVendor] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
+  const [location, setLocation] = useState("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [savedNotice, setSavedNotice] = useState("");
+
+  const [stocks, setStocks] = useState([]);
+  const [stockStatus, setStockStatus] = useState("loading"); // loading | ready | error
+
+  const effType = fabricType === "기타" ? fabricTypeCustom.trim() : fabricType;
+  const previewPartNo = [effType, thickness.trim() ? thickness.trim() + "T" : ""].filter(Boolean).join(" ");
+
+  const loadStocks = async () => {
+    setStockStatus("loading");
+    try {
+      const list = await listFabricVendorStock();
+      setStocks(list);
+      setStockStatus("ready");
+    } catch (e) {
+      setStockStatus("error");
+    }
+  };
+  useEffect(() => { loadStocks(); }, []);
+
+  const handleSave = async () => {
+    if (!effType) { setFormError("원단 종류를 선택해주세요."); return; }
+    if (!thickness.trim()) { setFormError("두께(T)를 입력해주세요."); return; }
+    if (!vendor.trim()) { setFormError("업체명을 입력해주세요."); return; }
+    const qty = Number(quantity);
+    if (!qty || qty <= 0) { setFormError("수량(m)은 1 이상의 숫자여야 합니다."); return; }
+    setFormError("");
+    setSubmitting(true);
+    setSavedNotice("");
+    try {
+      const res = await registerFabricIntake(employee.employeeId, {
+        date, fabricType: effType, thickness: thickness.trim(), vendor: vendor.trim(),
+        quantity: qty, unitPrice, location, note,
+      });
+      setSavedNotice(`${res.partNo} · ${res.vendor} ${Number(res.quantity).toLocaleString()}m 입고 등록됨`);
+      setQuantity("");
+      setNote("");
+      loadStocks();
+    } catch (err) {
+      setFormError(err.message || "저장 중 오류가 발생했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const inputCls = "w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 transition-colors focus-within:bg-white focus:bg-white text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none disabled:opacity-50";
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95 active:bg-slate-50"><ChevronLeft className="h-3.5 w-3.5" /> 홈으로</button>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">원단 입고</h1>
+      <p className="mt-1 text-sm text-slate-400">업체에서 원단이 들어오면 등록하세요. A동 점착 생산 시 이 재고에서 업체별로 차감됩니다.</p>
+
+      <div className="mt-5 space-y-4">
+        <div>
+          <label className="text-xs font-semibold text-slate-500">입고일 *</label>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-500">원단 종류 *</label>
+            <select value={fabricType} onChange={(e) => setFabricType(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`}>
+              {FABRIC_TYPES_IN.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500">두께(T) *</label>
+            <input value={thickness} onChange={(e) => setThickness(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="예: 3" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+          </div>
+        </div>
+        {fabricType === "기타" && (
+          <input value={fabricTypeCustom} onChange={(e) => setFabricTypeCustom(e.target.value)} placeholder="원단 종류 직접 입력" disabled={submitting} className={inputCls} />
+        )}
+        {previewPartNo && (
+          <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] text-slate-500">등록될 품명: <span className="font-bold text-slate-700">{previewPartNo}</span> — A동 점착 차감과 같은 이름이라 자동으로 이어집니다</p>
+        )}
+        <div>
+          <label className="text-xs font-semibold text-slate-500">업체명 *</label>
+          <input value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="진양 / 봉림 / 신우 / 영보 / 경일 등" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-500">수량(m) *</label>
+            <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="예: 200" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500">단가 <span className="font-normal text-slate-400">(선택)</span></label>
+            <input value={unitPrice} onChange={(e) => setUnitPrice(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500">보관위치 <span className="font-normal text-slate-400">(선택)</span></label>
+          <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="예: A동 1층" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500">비고 <span className="font-normal text-slate-400">(선택)</span></label>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 난연 / 흑색" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+        </div>
+
+        {formError && <p className="text-xs font-semibold text-red-500">{formError}</p>}
+        {savedNotice && <p className="text-xs font-semibold" style={{ color: BRAND.deepGreen }}>{savedNotice}</p>}
+
+        <button onClick={handleSave} disabled={submitting}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          {submitting ? "저장중..." : "원단 입고 등록"}
+        </button>
+      </div>
+
+      {/* 업체별 현재 원단 잔량 */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-slate-700">업체별 원단 재고</h2>
+          <button type="button" onClick={loadStocks} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition-all active:scale-95">
+            <RefreshCw className="h-3 w-3" /> 새로고침
+          </button>
+        </div>
+        {stockStatus === "loading" && <p className="mt-3 text-xs text-slate-400">불러오는 중…</p>}
+        {stockStatus === "error" && <p className="mt-3 text-xs text-red-500">재고를 불러오지 못했습니다. 새로고침을 눌러주세요.</p>}
+        {stockStatus === "ready" && stocks.length === 0 && (
+          <p className="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 py-6 text-center text-xs text-slate-400">등록된 원단 재고가 없습니다.</p>
+        )}
+        {stockStatus === "ready" && stocks.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            {stocks.map((s) => (
+              <div key={`${s.partNo}|${s.vendor}`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-bold text-slate-800">{s.partNo}</p>
+                  <p className="text-[11px] text-slate-400">{s.vendor || "업체미상"}{s.lastDate ? ` · 최근 ${s.lastDate}` : ""}</p>
+                </div>
+                <span className={`flex-shrink-0 text-sm font-extrabold ${Number(s.stock) < 0 ? "text-red-500" : Number(s.stock) === 0 ? "text-slate-400" : "text-slate-700"}`}>
+                  {Number(s.stock).toLocaleString()}m
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </main>
   );
 }
@@ -10126,6 +10372,9 @@ function GimhaeHome({ employee }) {
   if (activeScreen === "invoice_intake") {
     return <InvoiceIntakeScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
+  if (activeScreen === "fabric_intake") {
+    return <FabricIntakeScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  }
   if (activeScreen === "initial_inventory") {
     return <InitialInventoryScreen employee={employee} onBack={() => setActiveScreen(null)} />;
   }
@@ -10146,6 +10395,7 @@ function GimhaeHome({ employee }) {
       team: "관리팀",
       cards: [
         { key: "invoice_intake", icon: ReceiptText, label: "거래명세표 입고", desc: "명세표 사진 + 품목 입력 · 엑셀 다운로드", adminOnly: true },
+        { key: "fabric_intake", icon: Package, label: "원단 입고", desc: "업체별 원단 입고 등록 · 현재 원단 재고", adminOnly: false },
         { key: "initial_inventory", icon: PackagePlus, label: "기초재고 등록", desc: "재고관리 시작 재고(수량·단가·위치) 입력", adminOnly: false },
         { key: "inventory_status", icon: Boxes, label: "재고 현황", desc: "원자재·완제품 PART NO별 재고 · 엑셀", adminOnly: false },
         { key: "inventory_ledger", icon: CalendarRange, label: "월별 수불표", desc: "일자별 입고·출고·재고 · 엑셀", adminOnly: false },
