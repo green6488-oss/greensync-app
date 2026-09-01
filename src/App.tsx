@@ -9519,8 +9519,10 @@ function InitialInventoryScreen({ employee, onBack }) {
         if (!String(it.thickness).trim() || !it.quantity) { setFormError("반제품은 두께(T)와 수량을 입력해주세요."); return; }
         const lenMm = lookupRollLengthMm(it.fabricType, String(it.thickness).trim(), it.vendor);
         if (lenMm) {
-          const rolls = Math.round((Number(it.quantity) * 1000) / lenMm);
-          if (rolls < 1) { setFormError(`${it.fabricType} ${it.thickness}T: 수량이 1롤(=${(lenMm / 1000).toLocaleString()}m) 미만입니다. m 값을 확인해주세요.`); return; }
+          // 반올림 없이 소수점 그대로 저장(자투리 롤 존중). 예: 150m ÷ 100m = 1.5롤.
+          // 부동소수점 찌꺼기만 정리(소수 둘째 자리까지).
+          const rolls = Math.round(((Number(it.quantity) * 1000) / lenMm) * 100) / 100;
+          if (!(rolls > 0)) { setFormError(`${it.fabricType} ${it.thickness}T: 수량(m)을 확인해주세요.`); return; }
           itemsToSend.push({ ...it, quantity: String(rolls) });
         } else {
           itemsToSend.push(it);
@@ -9614,16 +9616,16 @@ function InitialInventoryScreen({ employee, onBack }) {
                       const lenMm = lookupRollLengthMm(it.fabricType, String(it.thickness).trim(), it.vendor);
                       const mVal = Number(it.quantity);
                       const rollsExact = lenMm && mVal > 0 ? (mVal * 1000) / lenMm : null;
-                      const rollsSave = rollsExact != null ? Math.round(rollsExact) : null;
+                      const rollsSave = rollsExact != null ? Math.round(rollsExact * 100) / 100 : null; // 반올림 없이 소수 그대로(둘째 자리까지)
                       return (
                         <>
                           <div className="mt-2 grid grid-cols-2 gap-2">
                             <input value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder={lenMm ? "수량(m) *" : "수량(롤) *"} disabled={submitting} className={inputCls} />
                             <input value={it.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="단가" disabled={submitting} className={inputCls} />
                           </div>
-                          {lenMm && rollsExact != null && (
+                          {lenMm && rollsSave != null && (
                             <p className="mt-1 text-[11px] font-semibold" style={{ color: BRAND.deepGreen }}>
-                              {mVal.toLocaleString()}m = {Number.isInteger(rollsExact) ? rollsExact : rollsExact.toFixed(1)}롤{!Number.isInteger(rollsExact) ? ` → ${rollsSave}롤로 저장` : "로 저장"}
+                              {mVal.toLocaleString()}m = {rollsSave}롤로 저장
                               <span className="font-normal text-slate-400"> (1롤 = {(lenMm / 1000).toLocaleString()}m{String(it.vendor || "").trim() ? ` · ${String(it.vendor).trim()} 기준` : ""})</span>
                             </p>
                           )}
