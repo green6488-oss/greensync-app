@@ -9354,9 +9354,14 @@ function InventoryStatusScreen({ employee, onBack }) {
   const [error, setError] = useState("");
 
   const isMaterial = kind === "원자재";
+  // 단가·금액가치를 보여줄 구분 — 원자재 + 점착완제품(반제품, 기초 등록 시 단가 입력 가능)
+  const showValue = kind === "원자재" || kind === "점착완제품";
+  // 구분별 수량 단위 — 점착완제품은 롤, 재단/완제품은 EA, 원자재는 혼재(m·EA)라 표기 생략
+  const qtyUnit = kind === "점착완제품" ? "롤" : (kind === "재단완제품" || kind === "완제품") ? " EA" : "";
 
   const reload = async () => {
     setStatus("loading");
+    setData(null); // 탭 전환 시 이전 구분의 데이터(총액 카드 등)가 잠깐 보이는 잔상 방지
     try {
       const d = await getInventoryStatus(employee.employeeId, kind);
       setData(d);
@@ -9371,15 +9376,16 @@ function InventoryStatusScreen({ employee, onBack }) {
 
   const exportToExcel = () => {
     if (!data) return;
-    const header = isMaterial
-      ? ["재고구분", "PART NO", "수량", "단가", "금액가치", "보관위치"]
-      : ["재고구분", "PART NO", "수량", "보관위치"];
-    const rows = [header, ...data.items.map((it) => isMaterial
+    const qtyHeader = qtyUnit ? `수량(${qtyUnit.trim()})` : "수량";
+    const header = showValue
+      ? ["재고구분", "PART NO", qtyHeader, "단가", "금액가치", "보관위치"]
+      : ["재고구분", "PART NO", qtyHeader, "보관위치"];
+    const rows = [header, ...data.items.map((it) => showValue
       ? [it.kind, it.partNo, it.quantity, it.unitPrice != null ? it.unitPrice : "", it.value != null ? it.value : "", it.location || ""]
       : [it.kind, it.partNo, it.quantity, it.location || ""])];
-    if (isMaterial) rows.push(["", "합계", "", "", data.totalValue || 0, ""]);
+    if (showValue) rows.push(["", "합계", "", "", data.totalValue || 0, ""]);
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = isMaterial
+    ws["!cols"] = showValue
       ? [{ wch: 10 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 16 }]
       : [{ wch: 10 }, { wch: 18 }, { wch: 10 }, { wch: 16 }];
     const wb = XLSX.utils.book_new();
@@ -9409,11 +9415,11 @@ function InventoryStatusScreen({ employee, onBack }) {
         ))}
       </div>
 
-      {/* 원자재일 때만 총 금액가치 카드 */}
-      {isMaterial && data && (
+      {/* 원자재·점착완제품 총 금액가치 카드 (구분별로 따로 계산) */}
+      {showValue && data && (
         <div className="mt-4 overflow-hidden rounded-2xl p-5 text-white" style={{ background: `linear-gradient(135deg, ${BRAND.deepGreen} 0%, ${BRAND.deepGreenDark} 100%)`, boxShadow: "0 10px 24px -12px rgba(14,92,48,0.5)" }}>
           <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">TOTAL VALUE</p>
-          <p className="mt-1 text-[13px] text-white/70">원자재 총 금액가치</p>
+          <p className="mt-1 text-[13px] text-white/70">{isMaterial ? "원자재 총 금액가치" : "점착완제품(반제품) 총 금액가치"}</p>
           <p className="mt-1 text-[26px] font-extrabold tracking-tight">{Number(data.totalValue || 0).toLocaleString()}<span className="ml-0.5 text-base font-bold text-white/70">원</span></p>
         </div>
       )}
@@ -9439,18 +9445,26 @@ function InventoryStatusScreen({ employee, onBack }) {
               <div className="flex items-center justify-between">
                 <span className="text-[15px] font-semibold tracking-tight text-slate-900">{it.partNo}</span>
                 <span className={`text-[17px] font-extrabold tracking-tight ${it.quantity < 0 ? "text-red-500" : "text-slate-800"}`}>
-                  {Number(it.quantity).toLocaleString()}
+                  {Number(it.quantity).toLocaleString()}{qtyUnit}
                 </span>
               </div>
               <div className="mt-1.5 flex items-center justify-between text-[11.5px] text-slate-400">
                 <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{it.location || "위치 미지정"}</span>
-                {isMaterial && (
+                {showValue && (
                   <span>
                     {it.unitPrice != null ? `단가 ${Number(it.unitPrice).toLocaleString()}` : "단가 미등록"}
                     {it.value != null ? ` · 가치 ${Number(it.value).toLocaleString()}원` : ""}
                   </span>
                 )}
               </div>
+              {/* 점착완제품은 LOT의 원단·두께로 1롤 길이를 찾아 m 환산도 함께 보여준다 */}
+              {kind === "점착완제품" && (() => {
+                const spec = parseMaterialSpec(String(it.partNo).replace(/^(비염소\s*난연|난연|비난연|난가교)\s*/, ""));
+                const len = spec ? lookupRollLengthMm(spec.fabric, spec.thickness) : null;
+                return len && it.quantity > 0
+                  ? <p className="mt-1 text-[11px] text-slate-400">≈ {Math.round((it.quantity * len) / 1000).toLocaleString()}m <span className="text-slate-300">(1롤 = {(len / 1000).toLocaleString()}m)</span></p>
+                  : null;
+              })()}
               {it.quantity < 0 && (
                 <p className="mt-2 rounded-lg bg-red-50 px-2.5 py-1.5 text-[10px] font-semibold text-red-500">※ 재고가 음수입니다 — 기초재고 미등록 또는 출고 과다일 수 있어요.</p>
               )}
@@ -9496,15 +9510,27 @@ function InitialInventoryScreen({ employee, onBack }) {
   const handleSave = async () => {
     const filled = items.filter((it) => (kind === "반제품" ? it.fabricType : it.partNo.trim()));
     if (filled.length === 0) { setFormError(kind === "반제품" ? "원단 종류가 있는 항목을 최소 1개 입력해주세요." : "PART NO가 있는 항목을 최소 1개 입력해주세요."); return; }
+    // 반제품 — 수량은 m로 입력받고, 고정표(업체별 예외 포함)로 롤 수로 환산해 저장한다.
+    // 예: PE 5T 2,400m ÷ 200m = 12롤. 고정표에 없는 규격은 롤 수 그대로.
+    let itemsToSend = filled;
     if (kind === "반제품") {
+      itemsToSend = [];
       for (const it of filled) {
-        if (!String(it.thickness).trim() || !it.quantity) { setFormError("반제품은 두께(T)와 수량(롤)을 입력해주세요."); return; }
+        if (!String(it.thickness).trim() || !it.quantity) { setFormError("반제품은 두께(T)와 수량을 입력해주세요."); return; }
+        const lenMm = lookupRollLengthMm(it.fabricType, String(it.thickness).trim(), it.vendor);
+        if (lenMm) {
+          const rolls = Math.round((Number(it.quantity) * 1000) / lenMm);
+          if (rolls < 1) { setFormError(`${it.fabricType} ${it.thickness}T: 수량이 1롤(=${(lenMm / 1000).toLocaleString()}m) 미만입니다. m 값을 확인해주세요.`); return; }
+          itemsToSend.push({ ...it, quantity: String(rolls) });
+        } else {
+          itemsToSend.push(it);
+        }
       }
     }
     setFormError("");
     setSubmitting(true);
     try {
-      const res = await createInitialInventory(employee.employeeId, { kind, date, items: filled });
+      const res = await createInitialInventory(employee.employeeId, { kind, date, items: itemsToSend });
       setSavedNotice(`기초재고 ${res.itemCount}건이 등록되었습니다.`);
       setItems([emptyItem()]);
     } catch (err) {
@@ -9583,10 +9609,30 @@ function InitialInventoryScreen({ employee, onBack }) {
                         </button>
                       ))}
                     </div>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      <input value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="수량(롤) *" disabled={submitting} className={inputCls} />
-                      <input value={it.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="단가" disabled={submitting} className={inputCls} />
-                    </div>
+                    {(() => {
+                      // 수량은 m로 입력 → 고정표(업체별 예외 포함)로 롤 환산 미리보기.
+                      const lenMm = lookupRollLengthMm(it.fabricType, String(it.thickness).trim(), it.vendor);
+                      const mVal = Number(it.quantity);
+                      const rollsExact = lenMm && mVal > 0 ? (mVal * 1000) / lenMm : null;
+                      const rollsSave = rollsExact != null ? Math.round(rollsExact) : null;
+                      return (
+                        <>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            <input value={it.quantity} onChange={(e) => updateItem(idx, "quantity", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder={lenMm ? "수량(m) *" : "수량(롤) *"} disabled={submitting} className={inputCls} />
+                            <input value={it.unitPrice} onChange={(e) => updateItem(idx, "unitPrice", e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="단가" disabled={submitting} className={inputCls} />
+                          </div>
+                          {lenMm && rollsExact != null && (
+                            <p className="mt-1 text-[11px] font-semibold" style={{ color: BRAND.deepGreen }}>
+                              {mVal.toLocaleString()}m = {Number.isInteger(rollsExact) ? rollsExact : rollsExact.toFixed(1)}롤{!Number.isInteger(rollsExact) ? ` → ${rollsSave}롤로 저장` : "로 저장"}
+                              <span className="font-normal text-slate-400"> (1롤 = {(lenMm / 1000).toLocaleString()}m{String(it.vendor || "").trim() ? ` · ${String(it.vendor).trim()} 기준` : ""})</span>
+                            </p>
+                          )}
+                          {!lenMm && it.fabricType && String(it.thickness).trim() && (
+                            <p className="mt-1 text-[11px] text-slate-400">고정표에 없는 규격 — 롤 수로 직접 입력해주세요</p>
+                          )}
+                        </>
+                      );
+                    })()}
                     <input value={it.vendor} onChange={(e) => updateItem(idx, "vendor", e.target.value)} placeholder="원단업체 (진양/봉림 등)" disabled={submitting} className={`mt-2 ${inputCls}`} />
                     {it.fabricType && String(it.thickness).trim() && (
                       <p className="mt-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[10px] text-slate-500">
