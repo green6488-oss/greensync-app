@@ -1190,10 +1190,11 @@ async function createInitialInventory(actorEmployeeId, payload) {
       unit_price: it.unitPrice,
       location: it.location,
       vendor: it.vendor, // 원단/반제품이면 업체명 — 업체별 재고 추적
-      // 반제품(점착완제품) 전용 — 품명(원단종류+두께)·규격으로 서버가 LOT를 만든다
+      // 반제품(점착완제품) 전용 — 구분(난연)·품명(원단종류+두께)·규격으로 서버가 LOT를 만든다
       fabric_type: it.fabricType,
       thickness: it.thickness,
       separator_size: it.separatorSize,
+      flame_type: it.flameType,
       note: it.note,
     })),
   });
@@ -8270,8 +8271,8 @@ function ProductionLogScreen({ employee, onBack }) {
     "PU(G)", "PU(W)", "FELT(N)", "FELT(PE)", "NBR", "NBR튜브", "G/L", "PU(B)",
     "양면", "PVC", "전자선", "그라스울", "기타",
   ];
-  // 비고(구분) — 난연/비난연/난가교. 빈칸으로 두는 경우도 많아 "없음"을 기본값으로 둔다.
-  const FLAME_TYPES = ["", "난연", "비난연", "난가교"];
+  // 비고(구분) — 난연/비난연/난가교/비염소 난연. 빈칸으로 두는 경우도 많아 "없음"을 기본값으로 둔다.
+  const FLAME_TYPES = ["", "난연", "비난연", "난가교", "비염소 난연"];
   // C동 설비를 그룹으로 정렬(사진3 요청).
   const C_GROUPS = [
     { group: null, items: ["재단"] },
@@ -8352,7 +8353,7 @@ function ProductionLogScreen({ employee, onBack }) {
         return normSpecToken(l.fabricType) === wantFab && normSpecToken(l.thickness) === wantThk;
       }
       // 옛 데이터(원단·두께 칸이 빈 경우)는 LOT 문자열에서 유추한다.
-      const parsed = parseMaterialSpec(String(l.adhesiveLot || "").replace(/^(난연|비난연|난가교)\s*/, ""));
+      const parsed = parseMaterialSpec(String(l.adhesiveLot || "").replace(/^(비염소\s*난연|난연|비난연|난가교)\s*/, ""));
       if (!parsed) return false;
       return normSpecToken(parsed.fabric) === wantFab && normSpecToken(parsed.thickness) === wantThk;
     });
@@ -8629,7 +8630,7 @@ function ProductionLogScreen({ employee, onBack }) {
             <div>
               <label className="text-xs font-semibold text-slate-500">품명(원단 종류)</label>
               <select value={fabricType} onChange={(e) => setFabricType(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`}>
-                {FABRIC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                {FABRIC_TYPES.map((t) => <option key={t} value={t}>{t === "OPEN CELL" ? "OPEN CELL (오픈셀)" : t}</option>)}
               </select>
               {fabricType === "기타" && (
                 <input value={fabricTypeCustom} onChange={(e) => setFabricTypeCustom(e.target.value)} placeholder="원단 종류 직접 입력" disabled={submitting} className={`mt-2 ${inputCls}`} />
@@ -9473,7 +9474,9 @@ function InitialInventoryScreen({ employee, onBack }) {
 
   const [kind, setKind] = useState("원자재"); // 원자재 | 반제품 | 완제품
   const [date, setDate] = useState(todayStr);
-  const emptyItem = () => ({ partNo: "", quantity: "", unitPrice: "", location: "", vendor: "", fabricType: "PE", thickness: "", separatorSize: "대", note: "" });
+  const emptyItem = () => ({ partNo: "", quantity: "", unitPrice: "", location: "", vendor: "", fabricType: "PE", thickness: "", separatorSize: "대", flameType: "", note: "" });
+  // 반제품 구분(난연) — A동 점착LOT 자동 조합과 같은 선택지.
+  const SEMI_FLAME_TYPES = ["", "난연", "비난연", "난가교", "비염소 난연"];
   // 반제품(점착 후 재단 전, A동 보관 롤) 등록용 원단 종류 목록 — 생산일보 A동과 동일.
   const SEMI_FABRIC_TYPES = [
     "PE", "PU", "PU 고밀도", "PU+G/W", "PE+PU", "EPDM", "OPEN CELL", "아티론", "무가교", "SEAL",
@@ -9561,13 +9564,16 @@ function InitialInventoryScreen({ employee, onBack }) {
                 </div>
                 {kind === "반제품" ? (
                   <>
-                    {/* 반제품 — 품명(원단종류+두께)·규격·수량(롤)·단가·원단업체 */}
+                    {/* 반제품 — 구분(난연)·품명(원단종류+두께)·규격·수량(롤)·단가·원단업체 */}
                     <div className="mt-2 grid grid-cols-2 gap-2">
                       <select value={it.fabricType} onChange={(e) => updateItem(idx, "fabricType", e.target.value)} disabled={submitting} className={inputCls}>
-                        {SEMI_FABRIC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                        {SEMI_FABRIC_TYPES.map((t) => <option key={t} value={t}>{t === "OPEN CELL" ? "OPEN CELL (오픈셀)" : t}</option>)}
                       </select>
                       <input value={it.thickness} onChange={(e) => updateItem(idx, "thickness", e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="두께(T) *" disabled={submitting} className={inputCls} />
                     </div>
+                    <select value={it.flameType} onChange={(e) => updateItem(idx, "flameType", e.target.value)} disabled={submitting} className={`mt-2 ${inputCls}`}>
+                      {SEMI_FLAME_TYPES.map((t) => <option key={t || "none"} value={t}>{t || "구분 없음 (난연/비난연 등 선택)"}</option>)}
+                    </select>
                     <div className="mt-2 flex gap-1 rounded-2xl bg-slate-100 p-1">
                       {["소", "대", "특대"].map((s) => (
                         <button key={s} type="button" onClick={() => updateItem(idx, "separatorSize", s)} disabled={submitting}
@@ -9584,7 +9590,7 @@ function InitialInventoryScreen({ employee, onBack }) {
                     <input value={it.vendor} onChange={(e) => updateItem(idx, "vendor", e.target.value)} placeholder="원단업체 (진양/봉림 등)" disabled={submitting} className={`mt-2 ${inputCls}`} />
                     {it.fabricType && String(it.thickness).trim() && (
                       <p className="mt-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[10px] text-slate-500">
-                        등록될 LOT: <span className="font-bold text-slate-700">{[it.fabricType, String(it.thickness).trim() + "T", it.separatorSize, date.slice(2).replace(/-/g, "")].join(" ")}</span> · A동 보관
+                        등록될 LOT: <span className="font-bold text-slate-700">{[it.flameType, it.fabricType, String(it.thickness).trim() + "T", it.separatorSize, date.slice(2).replace(/-/g, "")].filter(Boolean).join(" ")}</span> · A동 보관
                       </p>
                     )}
                   </>
@@ -9729,7 +9735,7 @@ function FabricIntakeScreen({ employee, onBack }) {
           <div>
             <label className="text-xs font-semibold text-slate-500">원단 종류 *</label>
             <select value={fabricType} onChange={(e) => setFabricType(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`}>
-              {FABRIC_TYPES_IN.map((t) => <option key={t} value={t}>{t}</option>)}
+              {FABRIC_TYPES_IN.map((t) => <option key={t} value={t}>{t === "OPEN CELL" ? "OPEN CELL (오픈셀)" : t}</option>)}
             </select>
           </div>
           <div>
