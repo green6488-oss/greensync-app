@@ -79,6 +79,7 @@ const BRAND = {
 const SITES = {
   changwon: { key: "changwon", label: "창원(마산)공장", role: "경남 창원시 마산회원구 자유무역4길 49" },
   gimhae: { key: "gimhae", label: "김해공장", role: "경남 김해시 진영읍 서부로179번길 61-8" },
+  gi: { key: "gi", label: "GI 개발관리", role: "신제품 개발 프로세스 (개발의뢰 → 샘플 제출)" },
 };
 
 const ROLE_LABELS = {
@@ -489,6 +490,7 @@ async function authenticateEmployee(employeeId, password) {
       title: data.employee.title,
       role: data.employee.role,
       homeSite: data.employee.home_site,
+      giAccess: data.employee.gi_access === true, // GI 개발관리 접근(직원명부 L열)
     },
     mustChangePassword: data.must_change_password,
   };
@@ -591,6 +593,76 @@ async function switchSite(actorEmployeeId, targetSite) {
     target_site: targetSite,
   });
   return { activeSite: data.active_site };
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// GI — 신제품 개발 프로세스 (개발의뢰 → 샘플 제출 7단계)
+// ────────────────────────────────────────────────────────────────────────
+
+/** 개발 프로젝트 등록 — "createDevProject" 액션. GI 권한은 서버에서 검사. */
+async function createDevProject(actorEmployeeId, payload) {
+  const data = await callGasWebApp({
+    action: "createDevProject",
+    actor_employee_id: actorEmployeeId,
+    customer: payload.customer,
+    customer_contact_name: payload.customerContactName,
+    customer_contact_phone: payload.customerContactPhone,
+    model: payload.model,
+    part_no: payload.partNo,
+    quantity: payload.quantity,
+    due_date: payload.dueDate,
+    note: payload.note,
+  });
+  return { projectId: data.project_id };
+}
+
+/** 개발 프로젝트 목록 — "listDevProjects" 액션. */
+async function listDevProjects(actorEmployeeId) {
+  const data = await callGasWebApp({ action: "listDevProjects", actor_employee_id: actorEmployeeId });
+  return {
+    stageNames: data.stage_names || [],
+    projects: (data.projects || []).map((p) => ({
+      projectId: p.project_id, date: p.date, customer: p.customer,
+      customerContactName: p.customer_contact_name, customerContactPhone: p.customer_contact_phone,
+      model: p.model, partNo: p.part_no, quantity: p.quantity, dueDate: p.due_date,
+      registrant: p.registrant, currentStage: p.current_stage, status: p.status,
+      updatedAt: p.updated_at, note: p.note,
+    })),
+  };
+}
+
+/** 개발 프로젝트 상세(이력 포함) — "getDevProject" 액션. 원가는 GI 관리자만 값이 보인다. */
+async function getDevProject(actorEmployeeId, projectId) {
+  const data = await callGasWebApp({ action: "getDevProject", actor_employee_id: actorEmployeeId, project_id: projectId });
+  return {
+    project: {
+      projectId: data.project.project_id, date: data.project.date, customer: data.project.customer,
+      customerContactName: data.project.customer_contact_name, customerContactPhone: data.project.customer_contact_phone,
+      model: data.project.model, partNo: data.project.part_no, quantity: data.project.quantity,
+      dueDate: data.project.due_date, registrant: data.project.registrant,
+      currentStage: data.project.current_stage, status: data.project.status,
+      updatedAt: data.project.updated_at, note: data.project.note,
+    },
+    entries: (data.entries || []).map((e) => ({
+      recordId: e.record_id, stageNo: e.stage_no, stageName: e.stage_name,
+      item: e.item, value: e.value, enteredBy: e.entered_by, enteredAt: e.entered_at, note: e.note,
+    })),
+    canSeeCost: data.can_see_cost === true,
+    stageNames: data.stage_names || [],
+  };
+}
+
+/** 개발 진행 입력/단계 완료 — "saveDevProgress" 액션. */
+async function saveDevProgress(actorEmployeeId, payload) {
+  const data = await callGasWebApp({
+    action: "saveDevProgress",
+    actor_employee_id: actorEmployeeId,
+    project_id: payload.projectId,
+    stage_no: payload.stageNo,
+    entries: (payload.entries || []).map((e) => ({ item: e.item, value: e.value, note: e.note })),
+    complete: payload.complete === true,
+  });
+  return { projectId: data.project_id, currentStage: data.current_stage, status: data.status };
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -2017,7 +2089,7 @@ function ForcePasswordChangeScreen({ employee, onChanged, onLogout }) {
 // ────────────────────────────────────────────────────────────────────────
 // 공통 헤더 — 모든 로그인 후 화면 상단에 표시. 근무지/직책/이름/로그아웃.
 // ────────────────────────────────────────────────────────────────────────
-function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout, onOpenNotifications, onOpenPasswordChange }) {
+function GlobalHeader({ employee, activeSite, onSwitchSite, onEnterGi, onLogout, onOpenNotifications, onOpenPasswordChange }) {
   const site = SITES[activeSite];
   const canSwitchSite = SITE_SWITCHABLE_ROLES.includes(employee.role);
 
@@ -2035,15 +2107,39 @@ function GlobalHeader({ employee, activeSite, onSwitchSite, onLogout, onOpenNoti
         </div>
 
         <div className="flex flex-shrink-0 items-center gap-1.5">
-          {canSwitchSite && (
+          {activeSite === "gi" ? (
+            // GI 화면에서는 "공장 화면으로" 복귀 버튼만 보여준다(본인 근무지로 돌아감).
             <button
-              onClick={() => onSwitchSite(activeSite === "changwon" ? "gimhae" : "changwon")}
+              onClick={() => onEnterGi(employee.homeSite)}
               className="flex flex-shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 transition-all active:scale-95 active:bg-slate-50"
-              title="지원/관리자 권한으로 근무지를 전환할 수 있습니다"
             >
               <ArrowLeftRight className="h-3 w-3 flex-shrink-0" />
-              {activeSite === "changwon" ? "김해 전환" : "창원 전환"}
+              공장 화면
             </button>
+          ) : (
+            <>
+              {canSwitchSite && (
+                <button
+                  onClick={() => onSwitchSite(activeSite === "changwon" ? "gimhae" : "changwon")}
+                  className="flex flex-shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-slate-200 px-2.5 py-1.5 text-[11px] font-bold text-slate-600 transition-all active:scale-95 active:bg-slate-50"
+                  title="지원/관리자 권한으로 근무지를 전환할 수 있습니다"
+                >
+                  <ArrowLeftRight className="h-3 w-3 flex-shrink-0" />
+                  {activeSite === "changwon" ? "김해 전환" : "창원 전환"}
+                </button>
+              )}
+              {employee.giAccess && (
+                // 직원명부 L열(GI)에 표시된 직원에게만 보이는 GI 개발관리 입장 버튼.
+                <button
+                  onClick={() => onEnterGi("gi")}
+                  className="flex flex-shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1.5 text-[11px] font-bold text-white transition-all active:scale-95"
+                  style={{ backgroundColor: BRAND.deepGreen }}
+                  title="GI 개발관리 (신제품 개발 프로세스)"
+                >
+                  GI
+                </button>
+              )}
+            </>
           )}
           <button onClick={onOpenNotifications} className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition-colors active:scale-95 active:bg-slate-50">
             <Bell className="h-4 w-4" />
@@ -10649,6 +10745,462 @@ function GimhaeHome({ employee }) {
 
 // ────────────────────────────────────────────────────────────────────────
 // ────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────
+// GI 개발관리 — 신제품 개발 프로세스 7단계 (개발의뢰 → 샘플 제출)
+// 각 담당자가 자기 단계 항목을 입력하면 대시보드에서 진행현황이 실시간으로 보인다.
+// ────────────────────────────────────────────────────────────────────────
+const DEV_STAGES = [
+  { no: 1, name: "개발의뢰", desc: "프로젝트 등록 정보(외주업체 선정)", items: [] },
+  { no: 2, name: "도면검토", desc: "영업담당자", items: [
+    { key: "재질 검토", type: "text" },
+    { key: "업체 결정", type: "select", options: ["그린산업", "유성", "경일", "동명", "JL테크", "영보씨앤아이", "JM스펀지"] },
+    { key: "목형 검토", type: "ox" },
+    { key: "샘플 자체 검토 및 제출", type: "ox" },
+    { key: "제품 원가 검토", type: "cost", hint: "원가 — GI 소속 관리자만 입력·열람" },
+    { key: "업체 견적서 제출", type: "ox", hint: "담당자 이메일로 견적서 양식 메일 전송" },
+  ] },
+  { no: 3, name: "고객사 단가 검토", items: [{ key: "고객사 단가 검토", type: "ox" }] },
+  { no: 4, name: "초품 검사기획 및 실행", items: [{ key: "초품 검사기획 및 실행", type: "ox" }] },
+  { no: 5, name: "원자재 공급처 선정·발주", items: [
+    { key: "원자재 업체", type: "text", hint: "그린산업 외 외주업체일 경우 업체명 입력" },
+  ] },
+  { no: 6, name: "생산시작", items: [{ key: "생산시작", type: "ox" }] },
+  { no: 7, name: "샘플 제출", items: [{ key: "샘플 제출", type: "ox" }] },
+];
+
+/** 납기 D-day 라벨. 지남/임박(3일 이내)은 빨간색 처리용 urgent 플래그. */
+function devDueLabel(dueDate) {
+  if (!dueDate) return null;
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const diff = Math.round((new Date(dueDate) - new Date(todayStr)) / 86400000);
+  if (isNaN(diff)) return null;
+  if (diff === 0) return { text: "D-DAY", urgent: true };
+  if (diff > 0) return { text: `D-${diff}`, urgent: diff <= 3 };
+  return { text: `D+${-diff}`, urgent: true };
+}
+
+/** GI 홈 — 개발 대시보드 / 프로젝트 등록 메뉴. */
+function GiHome({ employee }) {
+  const [activeScreen, setActiveScreen] = useState(null);
+
+  if (activeScreen === "register") {
+    return <DevProjectRegisterScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  }
+  if (activeScreen === "dashboard") {
+    return <DevDashboardScreen employee={employee} onBack={() => setActiveScreen(null)} />;
+  }
+
+  const menus = [
+    { key: "dashboard", icon: BarChart3, label: "개발 대시보드", desc: "프로젝트별 진행현황 · 단계 입력 · 납기 D-day" },
+    { key: "register", icon: PlusCircle, label: "개발 프로젝트 등록", desc: "개발의뢰 정보 입력 (업체·모델·PART NO·납기)" },
+  ];
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">GI 개발관리</h1>
+      <p className="mt-1 text-sm text-slate-400">신제품 개발 프로세스 — 개발의뢰부터 샘플 제출까지 7단계를 추적합니다.</p>
+      <div className="mt-6 space-y-3">
+        {menus.map((m) => (
+          <button key={m.key} onClick={() => setActiveScreen(m.key)}
+            className="flex w-full items-center gap-4 rounded-[18px] bg-white p-4 text-left shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)] transition-all active:scale-[0.98]">
+            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl" style={{ backgroundColor: "#E8F1EC" }}>
+              <m.icon className="h-5 w-5" style={{ color: BRAND.deepGreen }} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[15px] font-bold text-slate-900">{m.label}</p>
+              <p className="mt-0.5 text-xs text-slate-400">{m.desc}</p>
+            </div>
+          </button>
+        ))}
+      </div>
+      <p className="mt-6 rounded-xl bg-slate-50 px-4 py-3 text-[11px] leading-relaxed text-slate-400">
+        프로세스: 개발의뢰 → 도면검토 → 고객사 단가 검토 → 초품 검사기획·실행 → 원자재 공급처 선정·발주 → 생산시작 → 샘플 제출
+      </p>
+    </main>
+  );
+}
+
+/** 개발 프로젝트 등록 — 1단계(개발의뢰) 정보. 등록하면 현재단계가 2(도면검토)로 시작. */
+function DevProjectRegisterScreen({ employee, onBack }) {
+  const [customer, setCustomer] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [model, setModel] = useState("");
+  const [partNo, setPartNo] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [savedNotice, setSavedNotice] = useState("");
+
+  const inputCls = "w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3.5 py-3 text-sm text-slate-800 placeholder:text-slate-300 focus:bg-white focus:outline-none disabled:opacity-50";
+
+  const handleSave = async () => {
+    if (!customer.trim()) { setFormError("업체명은 필수입니다."); return; }
+    setFormError("");
+    setSubmitting(true);
+    setSavedNotice("");
+    try {
+      await createDevProject(employee.employeeId, {
+        customer: customer.trim(), customerContactName: contactName.trim(), customerContactPhone: contactPhone.trim(),
+        model: model.trim(), partNo: partNo.trim(), quantity: quantity, dueDate: dueDate, note: note.trim(),
+      });
+      setSavedNotice(`"${customer.trim()}" 개발 프로젝트가 등록되었습니다. 대시보드에서 진행하세요.`);
+      setCustomer(""); setContactName(""); setContactPhone(""); setModel(""); setPartNo(""); setQuantity(""); setDueDate(""); setNote("");
+    } catch (err) {
+      setFormError(err.message || "등록 중 오류가 발생했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95"><ChevronLeft className="h-3.5 w-3.5" /> GI 홈</button>
+      <h1 className="text-[22px] font-bold tracking-tight text-slate-900">개발 프로젝트 등록</h1>
+      <p className="mt-1 text-sm text-slate-400">개발의뢰(1단계) 정보입니다. 등록하면 도면검토(2단계)부터 진행 입력이 시작됩니다.</p>
+
+      <div className="mt-5 space-y-3">
+        <div>
+          <label className="text-xs font-semibold text-slate-500">업체명 *</label>
+          <input value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="예: 웰템" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-500">업체 담당자</label>
+            <input value={contactName} onChange={(e) => setContactName(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500">업체 연락처</label>
+            <input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="010-" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-500">모델</label>
+            <input value={model} onChange={(e) => setModel(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500">PART NO</label>
+            <input value={partNo} onChange={(e) => setPartNo(e.target.value.toUpperCase())} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-500">수량</label>
+            <input value={quantity} onChange={(e) => setQuantity(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500">납기일자</label>
+            <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500">비고</label>
+          <input value={note} onChange={(e) => setNote(e.target.value)} disabled={submitting} className={`mt-1.5 ${inputCls}`} />
+        </div>
+
+        {formError && <p className="text-xs font-semibold text-red-500">{formError}</p>}
+        {savedNotice && <p className="text-xs font-semibold" style={{ color: BRAND.deepGreen }}>{savedNotice}</p>}
+
+        <button onClick={handleSave} disabled={submitting}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold text-white transition-all active:scale-[0.98] disabled:opacity-50" style={{ backgroundColor: BRAND.deepGreen }}>
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          {submitting ? "등록중..." : "프로젝트 등록"}
+        </button>
+      </div>
+    </main>
+  );
+}
+
+/** 개발 대시보드 — 프로젝트 목록(진행바·D-day) + 상세(단계별 입력·완료 처리). */
+function DevDashboardScreen({ employee, onBack }) {
+  const [projects, setProjects] = useState([]);
+  const [status, setStatus] = useState("loading"); // loading | ready | error
+  const [filter, setFilter] = useState("진행중"); // 전체 | 진행중 | 완료
+  const [selectedId, setSelectedId] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailStatus, setDetailStatus] = useState("idle");
+  const [drafts, setDrafts] = useState({}); // `${stageNo}|${item}` -> 입력중 값
+  const [savingStage, setSavingStage] = useState(null);
+  const [actionError, setActionError] = useState("");
+  const [actionNotice, setActionNotice] = useState("");
+
+  const loadList = async () => {
+    setStatus("loading");
+    try {
+      const data = await listDevProjects(employee.employeeId);
+      setProjects(data.projects);
+      setStatus("ready");
+    } catch (err) {
+      setStatus("error");
+    }
+  };
+  useEffect(() => { loadList(); }, []);
+
+  const loadDetail = async (projectId) => {
+    setDetailStatus("loading");
+    setActionError("");
+    try {
+      const d = await getDevProject(employee.employeeId, projectId);
+      setDetail(d);
+      setDetailStatus("ready");
+    } catch (err) {
+      setDetailStatus("error");
+      setActionError(err.message || "상세를 불러오지 못했습니다.");
+    }
+  };
+
+  const openProject = (projectId) => {
+    setSelectedId(projectId);
+    setDetail(null);
+    setDrafts({});
+    setActionNotice("");
+    loadDetail(projectId);
+  };
+  const closeProject = () => {
+    setSelectedId(null);
+    setDetail(null);
+    setDrafts({});
+    loadList(); // 목록으로 돌아올 때 진행바 최신화
+  };
+
+  const setDraft = (stageNo, item, value) => setDrafts((prev) => ({ ...prev, [`${stageNo}|${item}`]: value }));
+
+  const handleSaveStage = async (stage, complete) => {
+    if (!detail) return;
+    const entries = stage.items
+      .map((it) => ({ item: it.key, value: drafts[`${stage.no}|${it.key}`] }))
+      .filter((e) => e.value != null && String(e.value).trim() !== "");
+    if (entries.length === 0 && !complete) { setActionError("입력한 항목이 없습니다."); return; }
+    setActionError("");
+    setActionNotice("");
+    setSavingStage(stage.no);
+    try {
+      await saveDevProgress(employee.employeeId, { projectId: detail.project.projectId, stageNo: stage.no, entries, complete });
+      // 저장한 단계의 입력칸만 비운다
+      setDrafts((prev) => {
+        const next = { ...prev };
+        stage.items.forEach((it) => { delete next[`${stage.no}|${it.key}`]; });
+        return next;
+      });
+      setActionNotice(complete ? `${stage.name} 단계가 완료 처리되었습니다.` : `${stage.name} 입력이 저장되었습니다.`);
+      await loadDetail(detail.project.projectId);
+    } catch (err) {
+      setActionError(err.message || "저장 중 오류가 발생했습니다.");
+    } finally {
+      setSavingStage(null);
+    }
+  };
+
+  const inputCls = "w-full rounded-xl border border-slate-200 bg-slate-50/40 px-3 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:bg-white focus:outline-none disabled:opacity-50";
+  const fmtTime = (iso) => {
+    try { return new Date(iso).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }); }
+    catch (e) { return ""; }
+  };
+
+  // ── 상세 화면 ──────────────────────────────────────────
+  if (selectedId) {
+    const p = detail?.project;
+    // 항목별 최신 입력값(이력은 시간순이라 마지막 값이 최신)
+    const latest = {};
+    (detail?.entries || []).forEach((e) => { latest[`${e.stageNo}|${e.item}`] = e; });
+    const completedStages = new Set([1]);
+    (detail?.entries || []).forEach((e) => { if (e.item === "단계완료" && e.value === "O") completedStages.add(e.stageNo); });
+    if (p && p.status === "완료") DEV_STAGES.forEach((s) => completedStages.add(s.no));
+
+    return (
+      <main className="mx-auto max-w-md px-6 py-8">
+        <button onClick={closeProject} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95"><ChevronLeft className="h-3.5 w-3.5" /> 프로젝트 목록</button>
+
+        {detailStatus === "loading" && <p className="mt-8 text-center text-xs text-slate-400">불러오는 중...</p>}
+        {detailStatus === "error" && <p className="mt-8 text-center text-xs font-semibold text-red-500">{actionError}</p>}
+
+        {detailStatus === "ready" && p && (
+          <>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h1 className="text-[20px] font-bold tracking-tight text-slate-900">{p.customer}</h1>
+                <p className="mt-0.5 text-xs text-slate-400">{[p.model, p.partNo].filter(Boolean).join(" · ") || "모델/PART NO 미입력"}</p>
+              </div>
+              <span className={`flex-shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${p.status === "완료" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>{p.status}</span>
+            </div>
+
+            {/* 의뢰 정보(1단계) */}
+            <div className="mt-4 rounded-[16px] bg-white p-4 text-xs text-slate-500 shadow-[0_1px_3px_rgba(16,24,40,0.06)]">
+              <p className="font-bold text-slate-700">① 개발의뢰 정보</p>
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                <span>담당자: {p.customerContactName || "-"}</span>
+                <span>연락처: {p.customerContactPhone || "-"}</span>
+                <span>수량: {p.quantity != null ? Number(p.quantity).toLocaleString() : "-"}</span>
+                <span>납기: {p.dueDate || "-"}</span>
+                <span>등록: {p.date}</span>
+                <span>등록자: {p.registrant}</span>
+              </div>
+              {p.note && <p className="mt-1.5">비고: {p.note}</p>}
+            </div>
+
+            {actionError && <p className="mt-3 text-xs font-semibold text-red-500">{actionError}</p>}
+            {actionNotice && <p className="mt-3 text-xs font-semibold" style={{ color: BRAND.deepGreen }}>{actionNotice}</p>}
+
+            {/* 단계 카드 */}
+            <div className="mt-4 space-y-3">
+              {DEV_STAGES.filter((s) => s.no >= 2).map((stage) => {
+                const done = completedStages.has(stage.no);
+                const isCurrent = !done && p.status !== "완료" && stage.no === p.currentStage;
+                const busy = savingStage === stage.no;
+                return (
+                  <div key={stage.no} className={`rounded-[16px] bg-white p-4 shadow-[0_1px_3px_rgba(16,24,40,0.06)] ${isCurrent ? "ring-2 ring-emerald-200" : ""}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-bold text-slate-800">
+                        {["", "①", "②", "③", "④", "⑤", "⑥", "⑦"][stage.no]} {stage.name}
+                        {stage.desc ? <span className="ml-1 text-[11px] font-normal text-slate-400">({stage.desc})</span> : null}
+                      </p>
+                      <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${done ? "bg-emerald-50 text-emerald-600" : isCurrent ? "bg-amber-50 text-amber-600" : "bg-slate-100 text-slate-400"}`}>
+                        {done ? "완료" : isCurrent ? "진행중" : "대기"}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 space-y-2.5">
+                      {stage.items.map((it) => {
+                        const last = latest[`${stage.no}|${it.key}`];
+                        const draftKey = `${stage.no}|${it.key}`;
+                        const draftVal = drafts[draftKey] != null ? drafts[draftKey] : "";
+                        const isCost = it.type === "cost";
+                        const canEditCost = detail.canSeeCost;
+                        return (
+                          <div key={it.key}>
+                            <div className="flex items-center justify-between gap-2">
+                              <label className="text-[11px] font-semibold text-slate-500">{it.key}</label>
+                              {last && (
+                                <span className="text-[10px] text-slate-400">
+                                  현재: <span className="font-bold text-slate-600">{last.value}</span> · {last.enteredBy} {fmtTime(last.enteredAt)}
+                                </span>
+                              )}
+                            </div>
+                            {it.hint && <p className="mt-0.5 text-[10px] text-slate-400">{it.hint}</p>}
+                            {it.type === "ox" && (
+                              <div className="mt-1 flex gap-1 rounded-xl bg-slate-100 p-1">
+                                {["O", "X"].map((v) => (
+                                  <button key={v} type="button" disabled={busy} onClick={() => setDraft(stage.no, it.key, draftVal === v ? "" : v)}
+                                    className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition-all ${draftVal === v ? "text-white shadow-sm" : "text-slate-400"}`}
+                                    style={draftVal === v ? { backgroundColor: v === "O" ? BRAND.deepGreen : "#dc2626" } : {}}>
+                                    {v}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {it.type === "select" && (
+                              <select value={draftVal} onChange={(e) => setDraft(stage.no, it.key, e.target.value)} disabled={busy} className={`mt-1 ${inputCls}`}>
+                                <option value="">(선택)</option>
+                                {it.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                              </select>
+                            )}
+                            {it.type === "text" && (
+                              <input value={draftVal} onChange={(e) => setDraft(stage.no, it.key, e.target.value)} disabled={busy} className={`mt-1 ${inputCls}`} />
+                            )}
+                            {isCost && (canEditCost ? (
+                              <input value={draftVal} onChange={(e) => setDraft(stage.no, it.key, e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="원가(원)" disabled={busy} className={`mt-1 ${inputCls}`} />
+                            ) : (
+                              <p className="mt-1 rounded-xl bg-slate-50 px-3 py-2 text-[11px] text-slate-400">GI 소속 관리자만 입력·열람할 수 있습니다</p>
+                            ))}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {p.status !== "완료" && (
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button type="button" disabled={busy} onClick={() => handleSaveStage(stage, false)}
+                          className="rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-600 transition-all active:scale-95 disabled:opacity-50">
+                          {busy ? "저장중..." : "입력 저장"}
+                        </button>
+                        <button type="button" disabled={busy || done} onClick={() => handleSaveStage(stage, true)}
+                          className="rounded-xl py-2.5 text-xs font-bold text-white transition-all active:scale-95 disabled:opacity-40" style={{ backgroundColor: BRAND.deepGreen }}>
+                          {done ? "완료됨" : stage.no === 7 ? "샘플 제출 완료" : "단계 완료"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </main>
+    );
+  }
+
+  // ── 목록(대시보드) 화면 ────────────────────────────────
+  const filtered = projects.filter((p) => filter === "전체" ? true : p.status === filter);
+
+  return (
+    <main className="mx-auto max-w-md px-6 py-8">
+      <button onClick={onBack} className="mb-4 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1.5 pl-2 pr-3 text-xs font-semibold text-slate-500 transition-all active:scale-95"><ChevronLeft className="h-3.5 w-3.5" /> GI 홈</button>
+      <div className="flex items-center justify-between">
+        <h1 className="text-[22px] font-bold tracking-tight text-slate-900">개발 대시보드</h1>
+        <button onClick={loadList} className="flex items-center gap-1 text-xs font-semibold text-slate-400"><RefreshCw className="h-3.5 w-3.5" /> 새로고침</button>
+      </div>
+      <p className="mt-1 text-sm text-slate-400">프로젝트를 누르면 단계별 입력·완료 처리를 할 수 있습니다.</p>
+
+      <div className="mt-4 flex gap-1 rounded-2xl bg-slate-100 p-1">
+        {["진행중", "완료", "전체"].map((f) => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={`flex-1 rounded-xl py-2 text-xs font-bold transition-all ${filter === f ? "bg-white text-slate-900 shadow-sm" : "text-slate-400"}`}>
+            {f}
+          </button>
+        ))}
+      </div>
+
+      {status === "loading" && <p className="mt-8 text-center text-xs text-slate-400">불러오는 중...</p>}
+      {status === "error" && <p className="mt-8 text-center text-xs font-semibold text-red-500">목록을 불러오지 못했습니다. 새로고침을 눌러주세요.</p>}
+      {status === "ready" && filtered.length === 0 && (
+        <p className="mt-10 rounded-xl border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-xs text-slate-400">
+          {filter === "진행중" ? "진행중인 개발 프로젝트가 없습니다." : "해당하는 프로젝트가 없습니다."}
+        </p>
+      )}
+
+      {status === "ready" && filtered.length > 0 && (
+        <div className="mt-4 space-y-3">
+          {filtered.map((p) => {
+            const due = devDueLabel(p.dueDate);
+            const doneCount = p.status === "완료" ? 7 : Math.max(0, (p.currentStage || 1) - 1);
+            const currentName = p.status === "완료" ? "완료" : (DEV_STAGES[(p.currentStage || 1) - 1]?.name || "");
+            return (
+              <button key={p.projectId} onClick={() => openProject(p.projectId)}
+                className="w-full rounded-[18px] bg-white p-4 text-left shadow-[0_1px_3px_rgba(16,24,40,0.06),0_1px_2px_rgba(16,24,40,0.04)] transition-all active:scale-[0.98]">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-[15px] font-bold text-slate-900">{p.customer}</p>
+                    <p className="mt-0.5 truncate text-[11px] text-slate-400">{[p.model, p.partNo].filter(Boolean).join(" · ") || "모델/PART NO 미입력"}{p.quantity != null ? ` · ${Number(p.quantity).toLocaleString()}개` : ""}</p>
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-1.5">
+                    {due && <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${due.urgent ? "bg-red-50 text-red-500" : "bg-slate-100 text-slate-500"}`}>{due.text}</span>}
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${p.status === "완료" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"}`}>{p.status}</span>
+                  </div>
+                </div>
+                {/* 7단계 진행바 */}
+                <div className="mt-3 flex gap-1">
+                  {DEV_STAGES.map((s) => (
+                    <div key={s.no} className="h-1.5 flex-1 rounded-full"
+                      style={{ backgroundColor: s.no <= doneCount ? BRAND.deepGreen : (s.no === doneCount + 1 && p.status !== "완료") ? "#f59e0b" : "#e2e8f0" }} />
+                  ))}
+                </div>
+                <div className="mt-1.5 flex items-center justify-between text-[10px] text-slate-400">
+                  <span>{p.status === "완료" ? "전체 단계 완료" : `현재: ${["", "①", "②", "③", "④", "⑤", "⑥", "⑦"][p.currentStage] || ""} ${currentName}`}</span>
+                  <span>{doneCount}/7 단계</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </main>
+  );
+}
+
 // 자동로그인 — 로그인 성공 시 employee/activeSite를 localStorage에 저장해두고,
 // 다음 접속(새로고침/앱 재실행) 시 그 값으로 곧바로 홈 화면을 띄운다.
 // 비밀번호는 저장하지 않으며, 로그아웃 시 즉시 삭제된다.
@@ -10999,6 +11551,18 @@ export default function GreenSyncApp() {
     }
   };
 
+  // GI 개발관리 입장/복귀 — 근무지 전환과 달리 서버 호출 없이 화면만 바꾼다.
+  // (GI 권한은 개발 프로세스 액션마다 서버 requireGiAccess에서 다시 검사하므로 안전)
+  const handleEnterGi = (target) => {
+    setSwitchError("");
+    setActiveSite(target);
+    saveSession(employee, target);
+    const label = SITES[target]?.label || target;
+    setSiteSwitchToast(`${label}${target === "gi" ? "로" : "으로"} 전환되었습니다.`);
+    window.clearTimeout(siteSwitchToastTimerRef.current);
+    siteSwitchToastTimerRef.current = window.setTimeout(() => setSiteSwitchToast(null), 1800);
+  };
+
   if (screen === "login") {
     return <LoginScreen onLogin={handleLogin} />;
   }
@@ -11038,6 +11602,7 @@ export default function GreenSyncApp() {
         employee={employee}
         activeSite={activeSite}
         onSwitchSite={handleSwitchSite}
+        onEnterGi={handleEnterGi}
         onLogout={handleLogout}
         onOpenNotifications={() => setShowNotifications(true)}
         onOpenPasswordChange={() => setShowPasswordChange(true)}
@@ -11057,6 +11622,10 @@ export default function GreenSyncApp() {
       ) : activeSite === "gimhae" ? (
         <div key="gimhae" className="greensync-site-switch">
           <GimhaeHome employee={employee} />
+        </div>
+      ) : activeSite === "gi" ? (
+        <div key="gi" className="greensync-site-switch">
+          <GiHome employee={employee} />
         </div>
       ) : (
         <main className="mx-auto max-w-md px-6 py-16 text-center">
